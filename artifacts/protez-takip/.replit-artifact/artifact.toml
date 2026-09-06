@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Protez Takip"
+description = "Diş protez laboratuvarları, klinikler, doktorlar ve kuryeler için işlerin teslim alma, laboratuvar üretimi ve kliniğe geri teslim süreçlerini QR kod ve durum zaman çizelgesiyle takip eden operasyon uygulaması."
+version = "1.0.0"
+id = "artifacts/protez-takip"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18780
+
+[services.development]
+run = "pnpm --filter @workspace/protez-takip run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/protez-takip", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/protez-takip/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18780"
+BASE_PATH = "/"

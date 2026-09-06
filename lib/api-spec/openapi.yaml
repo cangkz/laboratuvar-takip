@@ -1,0 +1,494 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Protez laboratuvar iş takip API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: dashboard
+    description: Dashboard summaries
+  - name: jobs
+    description: Laboratory jobs
+  - name: clinics
+    description: Clinics and clinic workspaces
+  - name: doctors
+    description: Clinic doctors
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /processes:
+    get:
+      operationId: listProcesses
+      tags: [jobs]
+      summary: List configured job processes
+      responses:
+        "200":
+          description: Process list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Process"
+    post:
+      operationId: createProcess
+      tags: [jobs]
+      summary: Add a custom job process
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessInput"
+      responses:
+        "201":
+          description: Created process
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Process"
+  /processes/{id}:
+    delete:
+      operationId: deleteProcess
+      tags: [jobs]
+      summary: Remove a custom job process
+      parameters:
+        - $ref: "#/components/parameters/ProcessId"
+      responses:
+        "204":
+          description: Process removed
+        "400":
+          description: Default or used process cannot be removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Process not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List laboratory jobs
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: clinicId
+          in: query
+          schema:
+            type: integer
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LabJob"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Create a laboratory job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Created job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabJob"
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a laboratory job
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabJob"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /jobs/qr/{qrCode}:
+    get:
+      operationId: getJobByQr
+      tags: [jobs]
+      summary: Find a job by QR code
+      parameters:
+        - name: qrCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabJob"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /jobs/{id}/status:
+    patch:
+      operationId: updateJobStatus
+      tags: [jobs]
+      summary: Advance a job status
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobStatusInput"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabJob"
+  /jobs/{id}/timeline:
+    get:
+      operationId: listJobTimeline
+      tags: [jobs]
+      summary: List job timeline
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Timeline entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimelineEntry"
+  /clinics:
+    get:
+      operationId: listClinics
+      tags: [clinics]
+      summary: List clinics
+      responses:
+        "200":
+          description: Clinic list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Clinic"
+    post:
+      operationId: createClinic
+      tags: [clinics]
+      summary: Create a clinic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClinicInput"
+      responses:
+        "201":
+          description: Created clinic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clinic"
+  /clinics/{id}:
+    get:
+      operationId: getClinic
+      tags: [clinics]
+      summary: Get clinic details
+      parameters:
+        - $ref: "#/components/parameters/ClinicId"
+      responses:
+        "200":
+          description: Clinic detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClinicDetail"
+  /clinics/{id}/jobs:
+    get:
+      operationId: listClinicJobs
+      tags: [clinics]
+      summary: List clinic jobs
+      parameters:
+        - $ref: "#/components/parameters/ClinicId"
+      responses:
+        "200":
+          description: Clinic job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LabJob"
+  /doctors:
+    get:
+      operationId: listDoctors
+      tags: [doctors]
+      summary: List doctors
+      parameters:
+        - name: clinicId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Doctor list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Doctor"
+    post:
+      operationId: createDoctor
+      tags: [doctors]
+      summary: Create a doctor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorInput"
+      responses:
+        "201":
+          description: Created doctor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Doctor"
+components:
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ClinicId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ProcessId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    Process:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+        isDefault: { type: boolean }
+      required: [id, key, name, sortOrder, isDefault]
+    ProcessInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+      required: [name]
+    Clinic:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        code: { type: string }
+        address: { type: string }
+        phone: { type: string }
+        doctorsCount: { type: integer }
+        activeJobs: { type: integer }
+      required: [id, name, code, address, phone, doctorsCount, activeJobs]
+    ClinicInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        code: { type: string, minLength: 1 }
+        address: { type: string }
+        phone: { type: string }
+      required: [name, code]
+    ClinicDetail:
+      allOf:
+        - $ref: "#/components/schemas/Clinic"
+        - type: object
+          properties:
+            doctors:
+              type: array
+              items:
+                $ref: "#/components/schemas/Doctor"
+          required: [doctors]
+    Doctor:
+      type: object
+      properties:
+        id: { type: integer }
+        clinicId: { type: integer }
+        name: { type: string }
+        specialty: { type: string }
+        email: { type: string }
+      required: [id, clinicId, name, specialty, email]
+    DoctorInput:
+      type: object
+      properties:
+        clinicId: { type: integer }
+        name: { type: string, minLength: 1 }
+        specialty: { type: string }
+        email: { type: string }
+      required: [clinicId, name]
+    LabJob:
+      type: object
+      properties:
+        id: { type: integer }
+        jobNumber: { type: string }
+        qrCode: { type: string }
+        clinicId: { type: integer }
+        clinicName: { type: string }
+        doctorId: { type: integer }
+        doctorName: { type: string }
+        patientName: { type: string }
+        patientReference: { type: string }
+        prosthesisType: { type: string }
+        shade: { type: string }
+        priority: { type: string }
+        status: { type: string }
+        currentStage: { type: string }
+        createdAt: { type: string, format: date-time }
+        dueDate: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        notes: { type: ["string", "null"] }
+      required:
+        [id, jobNumber, qrCode, clinicId, clinicName, doctorId, doctorName,
+         patientName, patientReference, prosthesisType, shade, priority,
+         status, currentStage, createdAt, dueDate, updatedAt, notes]
+    JobInput:
+      type: object
+      properties:
+        clinicId: { type: integer }
+        doctorId: { type: integer }
+        patientName: { type: string, minLength: 1 }
+        patientReference: { type: string }
+        prosthesisType: { type: string }
+        shade: { type: string }
+        priority: { type: string }
+        dueDate: { type: string, format: date-time }
+        notes: { type: string }
+      required: [clinicId, doctorId, patientName, prosthesisType, dueDate]
+    JobStatusInput:
+      type: object
+      properties:
+        status: { type: string, minLength: 1 }
+        note: { type: string }
+      required: [status]
+    TimelineEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        status: { type: string }
+        label: { type: string }
+        actor: { type: string }
+        actorRole: { type: string }
+        timestamp: { type: string, format: date-time }
+        note: { type: ["string", "null"] }
+      required: [id, jobId, status, label, actor, actorRole, timestamp, note]
+    StatusCount:
+      type: object
+      properties:
+        status: { type: string }
+        label: { type: string }
+        count: { type: integer }
+      required: [status, label, count]
+    DashboardSummary:
+      type: object
+      properties:
+        activeJobs: { type: integer }
+        dueToday: { type: integer }
+        waitingPickup: { type: integer }
+        readyForDelivery: { type: integer }
+        statusCounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusCount"
+        recentJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LabJob"
+      required: [activeJobs, dueToday, waitingPickup, readyForDelivery, statusCounts, recentJobs]
+
