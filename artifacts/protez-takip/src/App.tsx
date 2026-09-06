@@ -132,9 +132,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="app-shell min-h-screen">
       <aside className={`sidebar ${mobileMenu ? 'mobile-open' : ''}`}>
         <Logo />
-        <button className="btn btn-ghost ml-auto hidden text-[hsl(var(--sidebar-foreground))] sm:hidden" onClick={() => setMobileMenu(false)} data-testid="button-close-menu">
-          <X size={18}/>
-        </button>
+        
         <div className="sidebar-divider my-7 border-t border-white/10" />
         <nav className="nav flex flex-1 flex-col gap-1">
           <div className="mb-2 px-3 text-[9px] font-bold uppercase tracking-[.18em] text-[hsl(var(--sidebar-muted))] nav-copy">Operasyon</div>
