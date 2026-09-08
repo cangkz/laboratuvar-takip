@@ -1,10 +1,9 @@
-import { Router, type IRouter } from "express";
-import healthRouter from "./health";
-import prosthesisRouter from "./prosthesis";
+import { Router } from "express";
+import stlRouter from "./stl.js";
 
-const router: IRouter = Router();
+const router = Router();
 
-router.use(healthRouter);
-router.use(prosthesisRouter);
+// Diğer rotaların yanı sıra stl router'ı ekliyoruz
+router.use("/stl", stlRouter);
 
 export default router;
