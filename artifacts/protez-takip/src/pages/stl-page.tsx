@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Upload, Download, Trash2, FileBox, RefreshCw } from "lucide-react";
+import { Upload, Download, Trash2, FileBox, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface StlFile {
   key: string;
@@ -12,6 +12,12 @@ export default function StlPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const fetchFiles = async () => {
     try {
@@ -22,7 +28,7 @@ export default function StlPage() {
       setFiles(data);
     } catch (err) {
       console.error(err);
-      alert("STL dosyaları listelenirken hata oluştu.");
+      showToast("STL dosyaları listelenirken hata oluştu.", "error");
     } finally {
       setLoading(false);
     }
@@ -49,11 +55,11 @@ export default function StlPage() {
       if (!res.ok) throw new Error("Yükleme başarısız");
 
       setSelectedFile(null);
-      alert("STL dosyası başarıyla yüklendi!");
+      showToast(`"${selectedFile.name}" başarıyla yüklendi!`, "success");
       fetchFiles();
     } catch (err) {
       console.error(err);
-      alert("Dosya yüklenirken hata oluştu.");
+      showToast("Dosya yüklenirken hata oluştu.", "error");
     } finally {
       setUploading(false);
     }
@@ -69,19 +75,31 @@ export default function StlPage() {
 
       if (!res.ok) throw new Error("Silme başarısız");
 
-      alert("Dosya silindi.");
+      showToast("Dosya başarıyla silindi.", "success");
       fetchFiles();
     } catch (err) {
       console.error(err);
-      alert("Dosya silinirken hata oluştu.");
+      showToast("Dosya silinirken hata oluştu.", "error");
     }
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6 relative">
+      {/* Toast Bildirim Alanı */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium transition-all animate-bounce ${
+          toast.type === "success" 
+            ? "bg-green-50 border-green-200 text-green-800" 
+            : "bg-red-50 border-red-200 text-red-800"
+        }`}>
+          {toast.type === "success" ? <CheckCircle2 size={18} className="text-green-600" /> : <AlertCircle size={18} className="text-red-600" />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <div className="flex items-center space-x-3">
-          <FileBox className="w-8 h-8 text-blue-600" />
+          <FileBox className="w-8 h-8 text-[hsl(var(--primary))]" />
           <h1 className="text-2xl font-bold text-gray-900">STL Dosya Paylaşım Sistemi</h1>
         </div>
         <button
@@ -101,12 +119,12 @@ export default function StlPage() {
             type="file"
             accept=".stl"
             onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[hsl(var(--secondary))] file:text-[hsl(var(--primary))] hover:file:opacity-80"
           />
           <button
             type="submit"
             disabled={!selectedFile || uploading}
-            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium rounded-lg transition"
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 py-2 bg-[hsl(var(--primary))] hover:opacity-90 disabled:bg-gray-300 text-white font-medium rounded-lg transition"
           >
             <Upload className="w-4 h-4" />
             <span>{uploading ? "Yükleniyor..." : "Yükle"}</span>
