@@ -4,9 +4,10 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import StlPage from '@/pages/stl-page';
 import {
   Activity, AlertCircle, ArrowRight, ArrowUpRight, BarChart3, Bell, Building2, CalendarDays,
-  Check, ChevronRight, CircleDot, ClipboardList, Clock3, DollarSign, FilePlus2, Gauge, HeartPulse,
+  Check, ChevronRight, CircleDot, ClipboardList, Clock3, DollarSign, FileBox, FilePlus2, Gauge, HeartPulse,
   LayoutDashboard, LogOut, MapPin, Menu, PackageCheck, Phone, Plus, QrCode, RefreshCw, Search,
   Settings, Stethoscope, Trash2, Truck, UserRound, UsersRound, X
 } from 'lucide-react';
@@ -29,7 +30,7 @@ import {
   Router as WouterRouter,
 } from 'wouter';
 
-const API_BASE = '';
+const API_BASE = 'https://laboratuvar-takip.onrender.com';
 
 const queryClient = new QueryClient();
 
@@ -88,7 +89,7 @@ function Logo() {
   }, []);
 
   return (
-    <Link href="/" className="brand flex items-center gap-3" data-testid="link-brand">
+    <Link href="/" className="brand flex items-center gap-3 pl-3 sm:pl-0" data-testid="link-brand">
       {logoUrl ? (
         <img src={logoUrl} alt="Logo" className="h-9 w-9 rounded-xl object-contain bg-white p-1 shadow-sm" />
       ) : (
@@ -126,28 +127,36 @@ function Shell({ children }: { children: ReactNode }) {
     { href:'/scan', label:'QR okut', icon:QrCode },
     { href:'/clinics', label:'Klinikler', icon:Building2 },
     { href:'/doctors', label:'Doktorlar & Girişler', icon:Stethoscope },
+    { href:'/stl', label:'STL Dosyaları', icon:FileBox },
   ];
 
   return (
-    <div className="app-shell min-h-screen">
+    <div className="app-shell min-h-screen relative">
+      {mobileMenu && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs sm:hidden" 
+          onClick={() => setMobileMenu(false)}
+        />
+      )}
+
       <aside className={`sidebar ${mobileMenu ? 'mobile-open' : ''}`}>
         <Logo />
         
-        <div className="sidebar-divider my-7 border-t border-white/10" />
-        <nav className="nav flex flex-1 flex-col gap-1">
-          <div className="mb-2 px-3 text-[9px] font-bold uppercase tracking-[.18em] text-[hsl(var(--sidebar-muted))] nav-copy">Operasyon</div>
+        <div className="sidebar-divider my-7 border-t border-white/10 mx-3 sm:mx-4" />
+        <nav className="nav flex flex-1 flex-col gap-1 px-3 sm:px-0">
+          <div className="mb-2 text-[9px] font-bold uppercase tracking-[.18em] text-[hsl(var(--sidebar-muted))] nav-copy">Operasyon</div>
           {nav.map(item => (
             <Link key={item.href} href={item.href} onClick={() => setMobileMenu(false)} className={`nav-link ${location === item.href ? 'active' : ''}`} data-testid={`link-nav-${item.label}`}>
               <item.icon className="nav-icon" /><span className="nav-copy">{item.label}</span>
             </Link>
           ))}
-          <div className="mt-7 mb-2 px-3 text-[9px] font-bold uppercase tracking-[.18em] text-[hsl(var(--sidebar-muted))] nav-copy">Çalışma alanı</div>
-          <Link href="/settings" className={`nav-link ${location === '/settings' ? 'active' : ''}`} data-testid="link-nav-settings">
+          <div className="mt-7 mb-2 text-[9px] font-bold uppercase tracking-[.18em] text-[hsl(var(--sidebar-muted))] nav-copy">Çalışma alanı</div>
+          <Link href="/settings" onClick={() => setMobileMenu(false)} className={`nav-link ${location === '/settings' ? 'active' : ''}`} data-testid="link-nav-settings">
             <Settings className="nav-icon"/><span className="nav-copy">Ayarlar</span>
           </Link>
         </nav>
-        <div className="sidebar-foot mt-auto border-t border-white/10 pt-4">
-          <div className="flex items-center gap-3 px-2">
+        <div className="sidebar-foot mt-auto border-t border-white/10 pt-4 px-3 sm:px-2">
+          <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">LAB</span>
             <span className="sidebar-foot-copy min-w-0">
               <span className="block truncate text-xs font-bold text-white">Laboratuvar Yöneticisi</span>
@@ -164,7 +173,7 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className="main-shell">
-        <header className="flex h-[68px] items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/.72)] px-4 backdrop-blur-md sm:px-8">
+        <header className="flex h-[68px] items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/.72)] pl-4 pr-0 backdrop-blur-md sm:pl-8 sm:pr-0">
           <button className="btn btn-ghost sm:hidden" onClick={() => setMobileMenu(true)} data-testid="button-open-menu"><Menu size={19}/></button>
           <div className="eyebrow hidden sm:block">İstanbul / Merkez laboratuvar</div>
           <div className="relative ml-auto flex items-center gap-2">
@@ -930,56 +939,176 @@ function JobDetail() {
 }
 
 function NewJob() {
-  const clinics=useListClinics({query:{queryKey:getListClinicsQueryKey()}});
-  const doctors=useListDoctors({}, {query:{queryKey:getListDoctorsQueryKey({})}});
-  const create=useCreateJob();
-  const [,setLocation]=useLocation();
-  const [form,setForm]=useState({clinicId:'',doctorId:'',patientName:'',patientReference:'',prosthesisType:'Zirkonyum kron',toothCount:'1',shade:'',priority:'normal',dueDate:'',notes:''});
-  const set=(key:string,value:string)=>setForm(prev=>({...prev,[key]:value}));
+  const clinics = useListClinics({ query: { queryKey: getListClinicsQueryKey() } });
+  const doctors = useListDoctors({}, { query: { queryKey: getListDoctorsQueryKey({}) } });
+  const create = useCreateJob();
+  const [, setLocation] = useLocation();
 
-  const submit=(e:FormEvent)=>{
+  const [form, setForm] = useState({
+    clinicId: '',
+    doctorId: '',
+    patientName: '',
+    patientReference: '',
+    prosthesisType: 'Zirkonyum kron',
+    toothCount: '1',
+    shade: '',
+    priority: 'normal',
+    dueDate: '',
+    notes: '',
+  });
+
+  const [unitPrice, setUnitPrice] = useState<number | null>(null);
+  const [loadingPrice, setLoadingPrice] = useState(false);
+
+  const set = (key: string, value: string) => setForm(prev => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    if (!form.clinicId || !form.prosthesisType) {
+      setUnitPrice(null);
+      return;
+    }
+
+    setLoadingPrice(true);
+    fetch(`${API_BASE}/api/clinics/${form.clinicId}/prices`)
+      .then(r => r.json())
+      .then(prices => {
+        if (Array.isArray(prices)) {
+          const match = prices.find((p: any) => p.procedureType === form.prosthesisType);
+          setUnitPrice(match ? Number(match.price) : 0);
+        } else {
+          setUnitPrice(0);
+        }
+      })
+      .catch(() => setUnitPrice(0))
+      .finally(() => setLoadingPrice(false));
+  }, [form.clinicId, form.prosthesisType]);
+
+  const calculatedTotalPrice = unitPrice !== null ? unitPrice * Number(form.toothCount || 1) : 0;
+
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    if(!form.clinicId||!form.doctorId||!form.patientName||!form.dueDate) return;
-    create.mutate({data:{...form, clinicId:Number(form.clinicId), doctorId:Number(form.doctorId), toothCount:Number(form.toothCount)}}, {
-      onSuccess:job=>{
-        queryClient.invalidateQueries({queryKey:getListJobsQueryKey()});
-        queryClient.invalidateQueries({queryKey:getGetDashboardSummaryQueryKey()});
-        setLocation(`/jobs/${job.id}`);
+    if (!form.clinicId || !form.doctorId || !form.patientName || !form.dueDate) return;
+
+    create.mutate(
+      {
+        data: {
+          ...form,
+          clinicId: Number(form.clinicId),
+          doctorId: Number(form.doctorId),
+          toothCount: Number(form.toothCount),
+          totalPrice: calculatedTotalPrice,
+        },
+      },
+      {
+        onSuccess: (job) => {
+          queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          setLocation(`/jobs/${job.id}`);
+        },
       }
-    });
+    );
   };
 
-  const clinicDoctors=doctors.data?.filter(d=>!form.clinicId||d.clinicId===Number(form.clinicId))||[];
+  const clinicDoctors = doctors.data?.filter(d => !form.clinicId || d.clinicId === Number(form.clinicId)) || [];
 
   return (
     <Shell>
       <div className="content-wrap fade-up">
-        <PageTitle eyebrow="Yeni kayıt / klinik vakası" title="Yeni iş oluştur" description="Vakayı sisteme alın; QR kimliği ve fiyat otomatik hesaplanır." actions={<Link href="/jobs" className="btn btn-quiet" data-testid="link-new-cancel">Vazgeç</Link>}/>
+        <PageTitle
+          eyebrow="Yeni kayıt / klinik vakası"
+          title="Yeni iş oluştur"
+          description="Vakayı sisteme alın; seçilen kliniğe özel birim fiyat otomatik kilitlenir."
+          actions={<Link href="/jobs" className="btn btn-quiet" data-testid="link-new-cancel">Vazgeç</Link>}
+        />
         <form className="grid gap-5 lg:grid-cols-[1fr_310px]" onSubmit={submit}>
           <section className="card p-5 sm:p-7">
             <div className="mb-6 flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><FilePlus2 size={17}/></span>
-              <div><div className="text-sm font-extrabold">Vaka bilgileri</div><div className="text-[11px] text-[hsl(var(--muted-foreground))]">Zorunlu alanları eksiksiz doldurun.</div></div>
+              <div>
+                <div className="text-sm font-extrabold">Vaka bilgileri</div>
+                <div className="text-[11px] text-[hsl(var(--muted-foreground))]">Zorunlu alanları eksiksiz doldurun.</div>
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className="label">Klinik *</label><select className="input" value={form.clinicId} onChange={e=>{set('clinicId',e.target.value);set('doctorId','')}} required data-testid="select-new-clinic"><option value="">Klinik seçin</option>{clinics.data?.map(c=><option key={c.id} value={c.id}>{c.name} · {c.code}</option>)}</select></div>
-              <div><label className="label">Doktor *</label><select className="input" value={form.doctorId} onChange={e=>set('doctorId',e.target.value)} required data-testid="select-new-doctor"><option value="">Doktor seçin</option>{clinicDoctors.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-              <div><label className="label">Hasta adı *</label><input className="input" value={form.patientName} onChange={e=>set('patientName',e.target.value)} placeholder="Örn. Merve Aksoy" required data-testid="input-new-patient"/></div>
-              <div><label className="label">Hasta referansı</label><input className="input" value={form.patientReference} onChange={e=>set('patientReference',e.target.value)} placeholder="Örn. MA-240612" data-testid="input-new-reference"/></div>
-              <div><label className="label">Protez türü *</label><select className="input" value={form.prosthesisType} onChange={e=>set('prosthesisType',e.target.value)} required data-testid="select-new-prosthesis"><option>Zirkonyum kron</option><option>E.max veneer</option><option>Geçici kron</option><option>İmplant üstü kron</option><option>Hareketli protez</option></select></div>
-              <div><label className="label">Diş / Üye Sayısı</label><input type="number" min="1" max="32" className="input" value={form.toothCount} onChange={e=>set('toothCount',e.target.value)} required /></div>
-              <div><label className="label">Renk</label><input className="input" value={form.shade} onChange={e=>set('shade',e.target.value)} placeholder="Örn. A2" data-testid="input-new-shade"/></div>
-              <div><label className="label">Öncelik</label><select className="input" value={form.priority} onChange={e=>set('priority',e.target.value)} data-testid="select-new-priority"><option value="normal">Normal</option><option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
-              <div className="sm:col-span-2"><label className="label">Teslim tarihi *</label><input className="input" type="date" value={form.dueDate} onChange={e=>set('dueDate',e.target.value)} required data-testid="input-new-due-date"/></div>
+              <div>
+                <label className="label">Klinik *</label>
+                <select className="input" value={form.clinicId} onChange={e => { set('clinicId', e.target.value); set('doctorId', ''); }} required data-testid="select-new-clinic">
+                  <option value="">Klinik seçin</option>
+                  {clinics.data?.map(c => <option key={c.id} value={c.id}>{c.name} · {c.code}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Doktor *</label>
+                <select className="input" value={form.doctorId} onChange={e => set('doctorId', e.target.value)} required data-testid="select-new-doctor">
+                  <option value="">Doktor seçin</option>
+                  {clinicDoctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Hasta adı *</label>
+                <input className="input" value={form.patientName} onChange={e => set('patientName', e.target.value)} placeholder="Örn. Merve Aksoy" required data-testid="input-new-patient"/>
+              </div>
+              <div>
+                <label className="label">Hasta referansı</label>
+                <input className="input" value={form.patientReference} onChange={e => set('patientReference', e.target.value)} placeholder="Örn. MA-240612" data-testid="input-new-reference"/>
+              </div>
+              <div>
+                <label className="label">Protez türü *</label>
+                <select className="input" value={form.prosthesisType} onChange={e => set('prosthesisType', e.target.value)} required data-testid="select-new-prosthesis">
+                  <option>Zirkonyum kron</option>
+                  <option>E.max veneer</option>
+                  <option>Geçici kron</option>
+                  <option>İmplant üstü kron</option>
+                  <option>Hareketli protez</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Diş / Üye Sayısı</label>
+                <input type="number" min="1" max="32" className="input" value={form.toothCount} onChange={e => set('toothCount', e.target.value)} required />
+              </div>
+              <div>
+                <label className="label">Renk</label>
+                <input className="input" value={form.shade} onChange={e => set('shade', e.target.value)} placeholder="Örn. A2" data-testid="input-new-shade"/>
+              </div>
+              <div>
+                <label className="label">Öncelik</label>
+                <select className="input" value={form.priority} onChange={e => set('priority', e.target.value)} data-testid="select-new-priority">
+                  <option value="normal">Normal</option>
+                  <option value="high">Yüksek</option>
+                  <option value="urgent">Acil</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Teslim tarihi *</label>
+                <input className="input" type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} required data-testid="input-new-due-date"/>
+              </div>
             </div>
-            <div className="mt-4"><label className="label">Not</label><textarea className="input min-h-[100px] resize-y" value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Laboratuvar ekibinin bilmesi gereken detaylar..." data-testid="textarea-new-notes"/></div>
-            <div className="mt-7 flex justify-end"><button className="btn btn-primary min-w-36" type="submit" disabled={create.isPending} data-testid="button-submit-new-job">{create.isPending ? 'Kaydediliyor...' : 'İşi kaydet'}<ArrowRight size={14}/></button></div>
+
+            <div className="mt-4 rounded-xl bg-[hsl(var(--muted)/.5)] p-4 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold">Hesaplanan Vaka Tutarı</div>
+                <div className="text-[10px] text-[hsl(var(--muted-foreground))]">Kliniğe özel birim fiyat × Üye sayısı üzerinden kilitlenir</div>
+              </div>
+              <div className="text-lg font-extrabold text-[hsl(var(--primary))]">
+                {loadingPrice ? 'Hesaplanıyor...' : `${calculatedTotalPrice.toLocaleString('tr-TR')} ₺`}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="label">Not</label>
+              <textarea className="input min-h-[100px] resize-y" value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Laboratuvar ekibinin bilmesi gereken detaylar..." data-testid="textarea-new-notes"/>
+            </div>
+            <div className="mt-7 flex justify-end">
+              <button className="btn btn-primary min-w-36" type="submit" disabled={create.isPending} data-testid="button-submit-new-job">
+                {create.isPending ? 'Kaydediliyor...' : 'İşi kaydet'} <ArrowRight size={14}/>
+              </button>
+            </div>
           </section>
           <aside className="card h-fit bg-[hsl(var(--primary))] p-5 text-[hsl(var(--primary-foreground))]">
             <div className="eyebrow text-white/55">Kimlik ve Fiyat</div>
             <QrCode className="my-7" size={52} strokeWidth={1.2}/>
             <h2 className="text-lg font-extrabold tracking-[-.04em]">Otomatik fiyatlandırma.</h2>
-            <p className="mt-2 text-xs leading-5 text-white/65">Klinik fiyat tablosuna göre tutar otomatik kilitlenir, vaka etiketi QR kod ile üretilir.</p>
+            <p className="mt-2 text-xs leading-5 text-white/65">Klinik özel fiyat listesi baz alınarak tutar iş anında sabitlenir, vaka etiketi QR kod ile üretilir.</p>
           </aside>
         </form>
       </div>
@@ -992,6 +1121,16 @@ function Scan() {
   const result=useGetJobByQr(submitted,{query:{enabled:!!submitted,queryKey:getGetJobByQrQueryKey(submitted)}});
   const search=(e:FormEvent)=>{e.preventDefault(); if(qr.trim())setSubmitted(qr.trim())};
   useEffect(() => { if(result.data) setLocation(`/jobs/${result.data.id}`); }, [result.data, setLocation]);
+
+  const startCamera = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      setCameraOpen(true);
+    } catch (err) {
+      alert("Kamera izni alınamadı. Lütfen cihaz ayarlarından uygulama izinlerini kontrol edin.");
+    }
+  };
+
   useEffect(() => {
     if (!cameraOpen) return;
     const scanner = new Html5QrcodeScanner('qr-reader', { fps: 10, qrbox: { width: 220, height: 220 } }, false);
@@ -1015,7 +1154,7 @@ function Scan() {
               {cameraOpen ? (
                 <div><div id="qr-reader" className="overflow-hidden rounded-lg" /><button className="btn btn-quiet mt-3" type="button" onClick={()=>setCameraOpen(false)} data-testid="button-close-camera">Kamerayı kapat</button></div>
               ) : (
-                <button className="btn btn-primary w-full justify-center" type="button" onClick={()=>setCameraOpen(true)} data-testid="button-open-camera"><QrCode size={15}/> Kamerayı aç</button>
+                <button className="btn btn-primary w-full justify-center" type="button" onClick={startCamera} data-testid="button-open-camera"><QrCode size={15}/> Kamerayı aç</button>
               )}
             </div>
             <form className="p-5 sm:p-7" onSubmit={search}>
@@ -1625,6 +1764,7 @@ function Router() {
         <Route path="/clinics/:id" component={ClinicDetail} />
         <Route path="/doctors" component={Doctors} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/stl" component={StlPage} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
