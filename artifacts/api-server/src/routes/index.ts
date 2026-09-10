@@ -30,4 +30,28 @@ router.post("/admin/labs", (req, res) => {
   // Aynı e-posta ile kayıt var mı kontrolü
   const exists = labsList.find(l => l.email === email);
   if (exists) {
-    return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir laboratuvar kayıtlı."
+    return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir laboratuvar kayıtlı." });
+  }
+
+  const newLab = { id: Date.now(), name, email, password };
+  labsList.push(newLab);
+  res.json({ success: true, lab: newLab });
+});
+
+// Laboratuvar Giriş (Login) Ucu
+router.post("/auth/lab-login", (req, res) => {
+  const { email, password } = req.body;
+  const lab = labsList.find(l => l.email === email && l.password === password);
+
+  if (!lab) {
+    return res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
+  }
+
+  res.json({
+    success: true,
+    lab: { id: lab.id, name: lab.name, email: lab.email },
+    token: "saas-lab-token-" + lab.id
+  });
+});
+
+export default router;
