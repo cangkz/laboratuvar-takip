@@ -2,6 +2,8 @@ import { Router } from "express";
 import multer from "multer";
 import { ListObjectsV2Command, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getR2Client, getR2Bucket } from "../lib/r2Client.js";
+import { db, externalStls } from "@workspace/db";
+import { eq, or } from "drizzle-orm";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -38,7 +40,6 @@ router.post("/", upload.single("file"), async (req, res) => {
     const s3 = getR2Client();
     const bucket = getR2Bucket();
 
-    // Türkçe karakter veya bozuk karakterleri temizleyip güvenli dosya adı oluşturalım
     const originalName = req.file.originalname || "dosya";
     const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${Date.now()}-${safeName}`;
@@ -58,16 +59,36 @@ router.post("/", upload.single("file"), async (req, res) => {
   }
 });
 
-// STL dosyası indir
+// STL dosyası indir, veritabanı downloadedAt alanını ve durumunu güncelle
 router.get("/:key/download", async (req, res) => {
   try {
     const { key } = req.params;
+    const decodedKey = decodeURIComponent(key);
     const s3 = getR2Client();
     const bucket = getR2Bucket();
 
+    // İndirme zaman damgasını logla ve veritabanında güncelle
+    const downloadTime = new Date();
+    console.log(`[B2B STL LOG] "${decodedKey}" dosyası karşı tarafça indirildi. Zaman: ${downloadTime.toISOString()}`);
+
+    try {
+      // Dosya adıyla eşleşen dış lab STL kaydını bulup downloadedAt ve status güncelleyelim
+      await db.update(externalStls)
+        .set({ 
+          downloadedAt: downloadTime,
+          status: "İndirildi" 
+        })
+        .where(or(
+          eq(externalStls.fileName, decodedKey),
+          eq(externalStls.fileUrl, decodedKey)
+        ));
+    } catch (dbErr) {
+      console.error("Veritabanı indirme zamanı güncellenirken hata:", dbErr);
+    }
+
     const command = new GetObjectCommand({
       Bucket: bucket,
-      Key: decodeURIComponent(key),
+      Key: decodedKey,
     });
 
     const response = await s3.send(command);
@@ -75,12 +96,11 @@ router.get("/:key/download", async (req, res) => {
       return res.status(404).json({ error: "Dosya bulunamadı." });
     }
 
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(key)}"` );
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(decodedKey)}"` );
     if (response.ContentType) {
       res.setHeader("Content-Type", response.ContentType);
     }
 
-    // Node stream'i Express response'a aktar
     const bodyStream = response.Body as any;
     bodyStream.pipe(res);
   } catch (error: any) {
