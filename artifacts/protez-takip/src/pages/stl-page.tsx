@@ -117,7 +117,6 @@ export default function StlPage() {
         <form onSubmit={handleUpload} className="flex flex-col sm:flex-row items-center gap-4">
           <input
             type="file"
-            accept=".stl"
             onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[hsl(var(--secondary))] file:text-[hsl(var(--primary))] hover:file:opacity-80"
           />

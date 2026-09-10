@@ -9,12 +9,12 @@ import {
   Activity, AlertCircle, ArrowRight, ArrowUpRight, BarChart3, Bell, Building2, CalendarDays,
   Check, ChevronRight, CircleDot, ClipboardList, Clock3, DollarSign, FileBox, FilePlus2, Gauge, HeartPulse,
   LayoutDashboard, LogOut, MapPin, Menu, PackageCheck, Phone, Plus, QrCode, RefreshCw, Search,
-  Settings, Stethoscope, Trash2, Truck, UserRound, UsersRound, X
+  Settings, Stethoscope, Trash2, Truck, UserRound, UsersRound, X, ShieldAlert
 } from 'lucide-react';
 import {
   getGetClinicQueryKey, getGetDashboardSummaryQueryKey, getGetJobByQrQueryKey, getGetJobQueryKey,
   getHealthCheckQueryKey,
-  getListClinicJobsQueryKey, getListClinicsQueryKey, getListDoctorsQueryKey, getListJobTimelineQueryKey,
+  getListClinicsQueryKey, getListDoctorsQueryKey, getListJobTimelineQueryKey,
   getListJobsQueryKey, useCreateClinic, useCreateJob, useGetClinic, useGetDashboardSummary,
   useGetJob, useGetJobByQr, useHealthCheck, useListClinicJobs, useListClinics, useListDoctors,
   useListJobTimeline, useListJobs, useUpdateJobStatus
@@ -31,7 +31,6 @@ import {
 } from 'wouter';
 
 const API_BASE = 'https://laboratuvar-takip.onrender.com';
-
 const queryClient = new QueryClient();
 
 type IconType = typeof LayoutDashboard;
@@ -89,7 +88,7 @@ function Logo() {
   }, []);
 
   return (
-    <Link href="/" className="brand flex items-center gap-3 pl-3 sm:pl-0" data-testid="link-brand">
+    <Link href="/dashboard" className="brand flex items-center gap-3 pl-3 sm:pl-0" data-testid="link-brand">
       {logoUrl ? (
         <img src={logoUrl} alt="Logo" className="h-9 w-9 rounded-xl object-contain bg-white p-1 shadow-sm" />
       ) : (
@@ -115,14 +114,14 @@ function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!auth) {
-      setLocation('/login');
+      setLocation('/');
     } else if (auth.role === 'doctor' && !location.startsWith('/doctor-portal')) {
       setLocation('/doctor-portal');
     }
   }, [auth, location, setLocation]);
 
   const nav = [
-    { href:'/', label:'Genel görünüm', icon:LayoutDashboard },
+    { href:'/dashboard', label:'Genel görünüm', icon:LayoutDashboard },
     { href:'/jobs', label:'İşler', icon:ClipboardList },
     { href:'/scan', label:'QR okut', icon:QrCode },
     { href:'/clinics', label:'Klinikler', icon:Building2 },
@@ -159,13 +158,13 @@ function Shell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">LAB</span>
             <span className="sidebar-foot-copy min-w-0">
-              <span className="block truncate text-xs font-bold text-white">Laboratuvar Yöneticisi</span>
-              <span className="block truncate text-[10px] text-[hsl(var(--sidebar-muted))]">Admin Portalı</span>
+              <span className="block truncate text-xs font-bold text-white">{auth?.labName || 'Laboratuvar Yöneticisi'}</span>
+              <span className="block truncate text-[10px] text-[hsl(var(--sidebar-muted))]">Lab Admin Portalı</span>
             </span>
             <button
               className="btn btn-ghost ml-auto p-1.5 text-[hsl(var(--sidebar-muted))] hover:text-white"
               title="Çıkış Yap"
-              onClick={() => { clearAuth(); setLocation('/login'); }}
+              onClick={() => { clearAuth(); setLocation('/'); }}
             >
               <LogOut size={15} />
             </button>
@@ -175,7 +174,7 @@ function Shell({ children }: { children: ReactNode }) {
       <main className="main-shell">
         <header className="flex h-[68px] items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/.72)] pl-4 pr-0 backdrop-blur-md sm:pl-8 sm:pr-0">
           <button className="btn btn-ghost sm:hidden" onClick={() => setMobileMenu(true)} data-testid="button-open-menu"><Menu size={19}/></button>
-          <div className="eyebrow hidden sm:block">İstanbul / Merkez laboratuvar</div>
+          <div className="eyebrow hidden sm:block">Merkez Laboratuvar Paneli</div>
           <div className="relative ml-auto flex items-center gap-2">
             <button className="btn btn-ghost relative p-2" onClick={()=>setNotificationsOpen(v=>!v)} data-testid="button-notifications">
               <Bell size={18}/><span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[hsl(var(--accent))]"/>
@@ -258,16 +257,33 @@ function EmptyState({ title, text, action }: {title:string;text:string;action?:R
 
 function LoginPage() {
   const [tab, setTab] = useState<'lab' | 'doctor'>('lab');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
 
-  const handleLabLogin = (e: FormEvent) => {
+  const handleLabLogin = async (e: FormEvent) => {
     e.preventDefault();
-    setAuth({ role: 'lab', name: 'Laboratuvar Yöneticisi' });
-    setLocation('/');
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/lab-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Giriş yapılamadı.');
+      }
+      setAuth({ role: 'lab', labId: data.lab.id, labName: data.lab.name, token: data.token });
+      setLocation('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Geçersiz e-posta veya şifre.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDoctorLogin = async (e: FormEvent) => {
@@ -278,7 +294,7 @@ function LoginPage() {
       const res = await fetch(`${API_BASE}/api/auth/doctor-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -307,13 +323,13 @@ function LoginPage() {
         <div className="flex border-b border-[hsl(var(--border))] bg-[hsl(var(--muted)/.4)]">
           <button
             className={`flex-1 py-3.5 text-xs font-bold transition-all ${tab === 'lab' ? 'border-b-2 border-[hsl(var(--primary))] bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-xs' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'}`}
-            onClick={() => { setTab('lab'); setError(''); }}
+            onClick={() => { setTab('lab'); setError(''); setEmail(''); setPassword(''); }}
           >
             Laboratuvar Girişi
           </button>
           <button
             className={`flex-1 py-3.5 text-xs font-bold transition-all ${tab === 'doctor' ? 'border-b-2 border-[hsl(var(--primary))] bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-xs' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'}`}
-            onClick={() => { setTab('doctor'); setError(''); }}
+            onClick={() => { setTab('doctor'); setError(''); setEmail(''); setPassword(''); }}
           >
             Klinik / Doktor Girişi
           </button>
@@ -327,25 +343,15 @@ function LoginPage() {
           )}
 
           {tab === 'lab' ? (
-            <form onSubmit={handleLabLogin} className="space-y-4">
-              <div className="rounded-lg bg-[hsl(var(--muted)/.5)] p-4 text-xs leading-5 text-[hsl(var(--muted-foreground))]">
-                Laboratuvar yönetimi ve operasyon yetkilisi paneline doğrudan bağlanın.
-              </div>
-              <button type="submit" className="btn btn-primary w-full justify-center py-2.5">
-                Laboratuvar Paneline Gir <ArrowRight size={15} />
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleDoctorLogin} className="space-y-4" autoComplete="off">
+            <form onSubmit={handleLabLogin} className="space-y-4" autoComplete="off">
               <div>
-                <label className="label">Doktor Kullanıcı Adı</label>
+                <label className="label">Laboratuvar E-posta Adresi</label>
                 <input
+                  type="email"
                   className="input"
-                  placeholder="Kullanıcı adı"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="off"
-                  name="no-autofill-user"
+                  placeholder="laboratuvar@ornek.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                 />
               </div>
@@ -357,8 +363,33 @@ function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                  name="no-autofill-pass"
+                  required
+                />
+              </div>
+              <button type="submit" disabled={loading} className="btn btn-primary w-full justify-center py-2.5">
+                {loading ? 'Giriş yapılıyor...' : 'Laboratuvar Paneline Gir'} <ArrowRight size={15} />
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleDoctorLogin} className="space-y-4" autoComplete="off">
+              <div>
+                <label className="label">Doktor Kullanıcı Adı</label>
+                <input
+                  className="input"
+                  placeholder="Kullanıcı adı"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="label">Şifre</label>
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
                 />
               </div>
@@ -368,6 +399,139 @@ function LoginPage() {
             </form>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [labName, setLabName] = useState('');
+  const [labs, setLabs] = useState<any[]>([]);
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [adminPass, setAdminPass] = useState('');
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const handleAdminLogin = (e: FormEvent) => {
+    e.preventDefault();
+    if (adminPass === 'cangkz19.') {
+      setIsAdminLoggedIn(true);
+      setError('');
+      loadLabs();
+    } else {
+      setError('Geçersiz Super Admin Şifresi.');
+    }
+  };
+
+  const loadLabs = () => {
+    fetch(`${API_BASE}/api/admin/labs`)
+      .then(r => r.json())
+      .then(d => setLabs(Array.isArray(d) ? d : []))
+      .catch(() => setLabs([]));
+  };
+
+  const handleCreateLab = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/labs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: labName, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Laboratuvar oluşturulamadı.');
+      setSuccessMsg(`Başarıyla oluşturuldu: ${labName}`);
+      setLabName('');
+      setEmail('');
+      setPassword('');
+      loadLabs();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[hsl(var(--background))] p-4 sm:p-8">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-6 flex items-center justify-between border-b border-[hsl(var(--border))] pb-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--primary))] text-white shadow-md">
+              <ShieldAlert size={20} />
+            </span>
+            <div>
+              <h1 className="text-xl font-extrabold">SaaS Super Admin Paneli</h1>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Yeni laboratuvar müşterileri tanımlayın ve yönetin.</p>
+            </div>
+          </div>
+          <Link href="/" className="btn btn-quiet text-xs">Ana Sayfaya Dön</Link>
+        </div>
+
+        {!isAdminLoggedIn ? (
+          <div className="card mx-auto max-w-md p-6 shadow-xl">
+            <h2 className="text-base font-extrabold mb-4">Yönetici Girişi</h2>
+            {error && <div className="mb-4 rounded bg-red-100 p-3 text-xs text-red-600 font-bold">{error}</div>}
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div>
+                <label className="label">Super Admin Şifresi</label>
+                <input
+                  type="password"
+                  className="input mono"
+                  placeholder="Yönetici şifresi"
+                  value={adminPass}
+                  onChange={(e) => setAdminPass(e.target.value)}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary w-full justify-center">Yönetici Paneline Gir</button>
+            </form>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-[1fr_1.2fr]">
+            <section className="card p-5">
+              <h2 className="text-sm font-extrabold mb-4">Yeni Laboratuvar Müşterisi Tanımla</h2>
+              {error && <div className="mb-3 rounded bg-red-100 p-2 text-xs text-red-600 font-bold">{error}</div>}
+              {successMsg && <div className="mb-3 rounded bg-green-100 p-2 text-xs text-green-700 font-bold">{successMsg}</div>}
+              <form onSubmit={handleCreateLab} className="space-y-3">
+                <div>
+                  <label className="label">Laboratuvar Adı</label>
+                  <input className="input" placeholder="Örn: Can Dental Lab" value={labName} onChange={e => setLabName(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="label">Laboratuvar E-posta</label>
+                  <input type="email" className="input" placeholder="lab@ornek.com" value={email} onChange={e => setEmail(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="label">Giriş Şifresi</label>
+                  <input className="input mono" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
+                </div>
+                <button type="submit" className="btn btn-primary w-full justify-center mt-2"><Plus size={14}/> Laboratuvar Ekle</button>
+              </form>
+            </section>
+
+            <section className="card p-5">
+              <h2 className="text-sm font-extrabold mb-4">Kayıtlı Müşteri Laboratuvarlar</h2>
+              {labs.length ? (
+                <div className="space-y-2 max-h-[350px] overflow-y-auto">
+                  {labs.map(l => (
+                    <div key={l.id} className="flex items-center justify-between rounded-lg bg-[hsl(var(--muted)/.5)] p-3 text-xs">
+                      <div>
+                        <div className="font-extrabold">{l.name}</div>
+                        <div className="text-[10px] text-[hsl(var(--muted-foreground))]">{l.email}</div>
+                      </div>
+                      <span className="mono text-[10px] bg-white px-2 py-1 rounded border shadow-2xs">ID: #{l.id}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-[hsl(var(--muted-foreground))]">Henüz kayıtlı laboratuvar bulunmuyor.</div>
+              )}
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -388,7 +552,7 @@ function DoctorPortal() {
 
   useEffect(() => {
     if (!auth || auth.role !== 'doctor') {
-      if (location !== '/login') setLocation('/login');
+      if (location !== '/') setLocation('/');
       return;
     }
     if (doctor?.id) {
@@ -443,7 +607,7 @@ function DoctorPortal() {
         </div>
         <button
           className="btn btn-quiet text-xs"
-          onClick={() => { clearAuth(); setLocation('/login'); }}
+          onClick={() => { clearAuth(); setLocation('/'); }}
         >
           <LogOut size={14} /> Çıkış Yap
         </button>
@@ -839,7 +1003,7 @@ function JobDetail() {
           actions={
             <>
               <Link href="/scan" className="btn btn-quiet" data-testid="link-detail-scan"><QrCode size={15}/> Başka iş tara</Link>
-              <button className="btn btn-primary" disabled={!nextStage || nextStage===data.status || update.isPending} advance-status data-testid="button-advance-status" onClick={advance}>
+              <button className="btn btn-primary" disabled={!nextStage || nextStage===data.status || update.isPending} data-testid="button-advance-status" onClick={advance}>
                 {update.isPending ? 'Güncelleniyor...' : `Sonraki aşama: ${statusMeta[nextStage]?.label || 'Tamamlandı'}`}
                 <ArrowRight size={14}/>
               </button>
@@ -997,7 +1161,7 @@ function NewJob() {
           doctorId: Number(form.doctorId),
           toothCount: Number(form.toothCount),
           totalPrice: calculatedTotalPrice,
-        },
+        } as any,
       },
       {
         onSuccess: (job) => {
@@ -1249,7 +1413,7 @@ function Clinics() {
 function ClinicDetail() {
   const id=Number(useParams<{id:string}>().id);
   const clinic=useGetClinic(id,{query:{enabled:!!id,queryKey:getGetClinicQueryKey(id)}});
-  const jobs=useListClinicJobs(id,{query:{enabled:!!id,queryKey:getListClinicJobsQueryKey(id)}});
+  const jobs = useListClinicJobs(id, { query: { enabled: !!id, queryKey: getListClinicsQueryKey() } });
 
   const [prices, setPrices] = useState<any[]>([]);
   const [finance, setFinance] = useState<any>(null);
@@ -1736,7 +1900,7 @@ function SettingsPage() {
               </span>
             </div>
             <div className="flex items-center gap-3 border-t border-[hsl(var(--border))] pt-4">
-              <HeartPulse size={18} className="text-[hsl(var(--primary))]"/>
+              <HeartPulse size= {18} className="text-[hsl(var(--primary))]"/>
               <div>
                 <div className="text-xs font-bold">Postgres & API Servisi</div>
                 <div className="mt-1 text-[10px] text-[hsl(var(--muted-foreground))]">{health.data?.status||'Aktif ve çalışıyor'}</div>
@@ -1753,9 +1917,10 @@ function Router() {
   return (
     <RoutedErrorBoundary>
       <Switch>
-        <Route path="/login" component={LoginPage} />
+        <Route path="/" component={LoginPage} />
+        <Route path="/admin" component={AdminPanel} />
+        <Route path="/dashboard" component={Dashboard} />
         <Route path="/doctor-portal" component={DoctorPortal} />
-        <Route path="/" component={Dashboard} />
         <Route path="/jobs" component={Jobs} />
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/new-job" component={NewJob} />

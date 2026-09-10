@@ -38,19 +38,23 @@ router.post("/", upload.single("file"), async (req, res) => {
     const s3 = getR2Client();
     const bucket = getR2Bucket();
 
-    const fileName = `${Date.now()}-${req.file.originalname}`;
+    // Türkçe karakter veya bozuk karakterleri temizleyip güvenli dosya adı oluşturalım
+    const originalName = req.file.originalname || "dosya";
+    const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const fileName = `${Date.now()}-${safeName}`;
+
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: fileName,
       Body: req.file.buffer,
-      ContentType: req.file.mimetype,
+      ContentType: req.file.mimetype || "application/octet-stream",
     });
 
     await s3.send(command);
     res.status(201).json({ message: "Dosya başarıyla yüklendi.", key: fileName });
   } catch (error: any) {
     console.error("STL yükleme hatası:", error);
-    res.status(500).json({ error: "Dosya yüklenemedi.", details: error.message });
+    res.status(500).json({ error: "Dosya yüklenemedi.", details: error.message || String(error) });
   }
 });
 
