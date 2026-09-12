@@ -1,0 +1,7 @@
+SESSION_SECRET=replit_secrets_degeri
+PORT=5000
+DATABASE_URL=postgresql://neondb_owner:npg_dxO5BjNCoDH9@ep-snowy-dew-b2a3v58v-pooler.c-6.eu-central-1.aws.neon.tech/neondb?sslmode=require
+R2_ENDPOINT=https://d7d49e6c965a7aa07aab4de638bb6454.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=c5dd5ea96a8cc5c72958ed22c41136d7
+R2_SECRET_ACCESS_KEY=9ca345dc6216a094c4fea80b43cd85d48f7dc9b59d4ce60f356b78b3ce732b1b
+R2_BUCKET_NAME=laboratuvar-stl-dosyalari

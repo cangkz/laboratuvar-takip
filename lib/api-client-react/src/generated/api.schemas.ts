@@ -142,4 +142,27 @@ q?: string;
 export type ListDoctorsParams = {
 clinicId?: number;
 };
+export interface ExternalLab {
+  id: number;
+  name: string;
+  email: string;
+  createdAt: string;
+}
 
+export interface ExternalLabInput {
+  name: string;
+  email: string;
+  password?: string;
+}
+
+export interface ExternalStlJob {
+  id: number;
+  externalLabId: number;
+  patientName: string;
+  fileName: string;
+  fileUrl: string;
+  status: string;
+  /** @nullable */
+  downloadedAt: string | null;
+  createdAt: string;
+}

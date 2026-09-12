@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Upload, Download, Trash2, FileBox, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, Download, Trash2, FileBox, RefreshCw, CheckCircle2, AlertCircle, ArrowLeft, HardDrive, UserPlus, X, Building2 } from "lucide-react";
+import { Link } from "wouter";
 
 interface StlFile {
   key: string;
@@ -7,12 +8,39 @@ interface StlFile {
   lastModified: string;
 }
 
+interface ExternalLab {
+  id: number;
+  name: string;
+  email: string;
+}
+
+interface ExternalStlJob {
+  id: number;
+  externalLabId: number;
+  patientName: string;
+  fileName: string;
+  fileUrl: string;
+  status: string;
+  downloadedAt: string | null;
+  createdAt: string;
+}
+
 export default function StlPage() {
   const [files, setFiles] = useState<StlFile[]>([]);
+  const [downloads, setDownloads] = useState<{ name: string; time: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // B2B Lab-to-Lab Modalı ve Verileri İçin State'ler
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [externalLabs, setExternalLabs] = useState<ExternalLab[]>([]);
+  const [externalStls, setExternalStls] = useState<ExternalStlJob[]>([]);
+  const [labName, setLabName] = useState("");
+  const [labEmail, setLabEmail] = useState("");
+  const [labPassword, setLabPassword] = useState("");
+  const [submittingLab, setSubmittingLab] = useState(false);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -34,8 +62,28 @@ export default function StlPage() {
     }
   };
 
+  // Dış Lab ve STL Takip Verilerini Çek
+  const fetchExternalData = async () => {
+    try {
+      const labsRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/admin/external-labs`);
+      if (labsRes.ok) {
+        const labsData = await labsRes.json();
+        setExternalLabs(labsData);
+      }
+
+      const stlsRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/admin/external-stls`);
+      if (stlsRes.ok) {
+        const stlsData = await stlsRes.json();
+        setExternalStls(stlsData);
+      }
+    } catch (err) {
+      console.error("Dış lab verileri alınamadı:", err);
+    }
+  };
+
   useEffect(() => {
     fetchFiles();
+    fetchExternalData();
   }, []);
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -83,6 +131,43 @@ export default function StlPage() {
     }
   };
 
+  const handleDownloadClick = (fileName: string) => {
+    const timeStr = new Date().toLocaleTimeString("tr-TR", { hour: '2-digit', minute: '2-digit' });
+    setDownloads(prev => [{ name: fileName, time: timeStr }, ...prev.filter(d => d.name !== fileName)]);
+    showToast(`"${fileName}" indirilmek üzere başlatıldı.`, "success");
+  };
+
+  // Yeni Dış Lab Ekleme Fonksiyonu
+  const handleAddExternalLab = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!labName || !labEmail || !labPassword) return;
+
+    try {
+      setSubmittingLab(true);
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/admin/external-labs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: labName, email: labEmail, password: labPassword }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast("Dış laboratuvar başarıyla eklendi!", "success");
+        setLabName("");
+        setLabEmail("");
+        setLabPassword("");
+        fetchExternalData();
+      } else {
+        showToast(data.error || "Laboratuvar eklenemedi.", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Sunucu hatası oluştu.", "error");
+    } finally {
+      setSubmittingLab(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6 relative">
       {/* Toast Bildirim Alanı */}
@@ -97,18 +182,38 @@ export default function StlPage() {
         </div>
       )}
 
-      <div className="flex justify-between items-center">
+      {/* Üst Kısım: Ana Sayfa Dönüş Butonu, Başlık ve Sağ Üst "STL Ortağı Ekle" Butonu */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center space-x-3">
-          <FileBox className="w-8 h-8 text-[hsl(var(--primary))]" />
-          <h1 className="text-2xl font-bold text-gray-900">STL Dosya Paylaşım Sistemi</h1>
+          <Link href="/dashboard" className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition flex items-center gap-1.5 text-xs font-bold" title="Ana Sayfaya Dön">
+            <ArrowLeft className="w-4 h-4" />
+            <span>Ana Sayfa</span>
+          </Link>
+          <div className="h-6 w-px bg-gray-300 hidden sm:block" />
+          <div className="flex items-center space-x-3">
+            <FileBox className="w-8 h-8 text-[hsl(var(--primary))]" />
+            <h1 className="text-2xl font-bold text-gray-900">STL Dosya Paylaşım Sistemi</h1>
+          </div>
         </div>
-        <button
-          onClick={fetchFiles}
-          className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          <span>Yenile</span>
-        </button>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          {/* SAĞ ÜST KÖŞE: STL ORTAĞI EKLE BUTONU */}
+          <button
+            onClick={() => { setIsModalOpen(true); fetchExternalData(); }}
+            className="flex items-center space-x-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-white font-medium rounded-lg shadow-sm transition"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>STL Ortağı Ekle</span>
+          </button>
+
+          <button
+            onClick={fetchFiles}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <span>Yenile</span>
+          </button>
+        </div>
       </div>
 
       {/* Yükleme Formu */}
@@ -153,6 +258,7 @@ export default function StlPage() {
                 <div className="flex items-center space-x-2">
                   <a
                     href={`${import.meta.env.VITE_API_URL || ""}/api/stl/${encodeURIComponent(file.key)}/download`}
+                    onClick={() => handleDownloadClick(file.key)}
                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
                     title="İndir"
                   >
@@ -171,6 +277,180 @@ export default function StlPage() {
           </div>
         )}
       </div>
+
+      {/* İndirilen Dosyalar Bölümü */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-6">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-5 h-5 text-[hsl(var(--primary))]" />
+            <h2 className="text-lg font-semibold text-gray-800">İndirilen Dosyalarım</h2>
+          </div>
+          {downloads.length > 0 && (
+            <button 
+              onClick={() => setDownloads([])}
+              className="text-xs text-red-600 hover:underline font-medium"
+            >
+              Geçmişi Temizle
+            </button>
+          )}
+        </div>
+        {downloads.length === 0 ? (
+          <div className="p-6 text-center text-gray-400 text-xs">Bu oturumda henüz bir dosya indirdiğiniz görünmüyor.</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {downloads.map((item, index) => (
+              <div key={index} className="px-6 py-3 flex items-center justify-between text-sm hover:bg-gray-50 transition">
+                <span className="font-medium text-gray-700">{item.name}</span>
+                <span className="text-xs text-gray-400">İndirildi: {item.time}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* STL ORTAĞI EKLE VE YÖNETİM MODALI */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Modal Başlık */}
+            <div className="px-6 py-4 bg-gray-50 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-[hsl(var(--primary))]" />
+                <h3 className="text-lg font-bold text-gray-800">Dış Laboratuvar & STL Ortak Yönetimi</h3>
+              </div>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal İçerik */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Yeni Dış Lab Ekleme Formu */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Yeni Dış Laboratuvar Hesabı Oluştur</h4>
+                <form onSubmit={handleAddExternalLab} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Lab Adı"
+                    value={labName}
+                    onChange={(e) => setLabName(e.target.value)}
+                    className="p-2 border rounded-lg text-sm bg-white"
+                    required
+                  />
+                  <input
+                    type="email"
+                    placeholder="E-posta adresi"
+                    value={labEmail}
+                    onChange={(e) => setLabEmail(e.target.value)}
+                    className="p-2 border rounded-lg text-sm bg-white"
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Şifre"
+                    value={labPassword}
+                    onChange={(e) => setLabPassword(e.target.value)}
+                    className="p-2 border rounded-lg text-sm bg-white"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={submittingLab}
+                    className="sm:col-span-3 bg-[hsl(var(--primary))] text-white py-2 rounded-lg text-sm font-medium hover:opacity-90 transition disabled:bg-gray-300"
+                  >
+                    {submittingLab ? "Ekleniyor..." : "Laboratuvarı Kaydet"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Kayıtlı Dış Laboratuvarlar Listesi */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Kayıtlı Dış Laboratuvarlar ({externalLabs.length})</h4>
+                <div className="border rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 border-b text-gray-600">
+                      <tr>
+                        <th className="p-3">ID</th>
+                        <th className="p-3">Lab Adı</th>
+                        <th className="p-3">E-posta</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {externalLabs.map((lab) => (
+                        <tr key={lab.id} className="hover:bg-gray-50">
+                          <td className="p-3 text-gray-500">{lab.id}</td>
+                          <td className="p-3 font-medium text-gray-800">{lab.name}</td>
+                          <td className="p-3 text-gray-600">{lab.email}</td>
+                        </tr>
+                      ))}
+                      {externalLabs.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="p-4 text-center text-gray-400 text-xs">Henüz kayıtlı dış laboratuvar yok.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Dış Lablardan Gelen STL İşleri ve İndirilme Zaman Damgası (downloadedAt) Takibi */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Gelen STL Gönderimleri ve İndirme Durumu</h4>
+                <div className="border rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 border-b text-gray-600">
+                      <tr>
+                        <th className="p-3">Hasta Adı</th>
+                        <th className="p-3">Dosya</th>
+                        <th className="p-3">Durum</th>
+                        <th className="p-3">İndirilme Zamanı (downloadedAt)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {externalStls.map((stl) => (
+                        <tr key={stl.id} className="hover:bg-gray-50">
+                          <td className="p-3 font-medium text-gray-800">{stl.patientName}</td>
+                          <td className="p-3 text-blue-600 underline text-xs">
+                            <a href={stl.fileUrl} target="_blank" rel="noreferrer">{stl.fileName}</a>
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              stl.status === 'İndirildi' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {stl.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-xs text-gray-500">
+                            {stl.downloadedAt ? new Date(stl.downloadedAt).toLocaleString('tr-TR') : 'Henüz indirilmedi'}
+                          </td>
+                        </tr>
+                      ))}
+                      {externalStls.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-gray-400 text-xs">Henüz dış laboratuvarlardan gelen STL kaydı bulunmuyor.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Kapat Butonu */}
+            <div className="px-6 py-3 bg-gray-50 border-t flex justify-end">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

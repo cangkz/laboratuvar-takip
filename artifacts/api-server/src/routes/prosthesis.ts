@@ -57,10 +57,21 @@ const stageLabels: Record<string, string> = {
   delivered: "Kliniğe teslim edildi",
 };
 
-async function selectJobs(where?: ReturnType<typeof eq> | ReturnType<typeof and>) {
+// Laboratuvar ID'sine göre filtreleme destekli ortak iş seçici
+async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | ReturnType<typeof and>) {
+  const conditions = [];
+  if (labId !== undefined && !isNaN(labId)) {
+    // @ts-ignore
+    conditions.push(eq(labJobsTable.labId, labId));
+  }
+  if (where) {
+    conditions.push(where);
+  }
+
   return db
     .select({
       id: labJobsTable.id,
+      labId: labJobsTable.labId,
       jobNumber: labJobsTable.jobNumber,
       qrCode: labJobsTable.qrCode,
       clinicId: labJobsTable.clinicId,
@@ -86,12 +97,12 @@ async function selectJobs(where?: ReturnType<typeof eq> | ReturnType<typeof and>
     .from(labJobsTable)
     .innerJoin(clinicsTable, eq(labJobsTable.clinicId, clinicsTable.id))
     .innerJoin(doctorsTable, eq(labJobsTable.doctorId, doctorsTable.id))
-    .where(where)
+    .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(labJobsTable.updatedAt));
 }
 
-async function getJobById(id: number) {
-  const [job] = await selectJobs(eq(labJobsTable.id, id));
+async function getJobById(id: number, labId?: number) {
+  const [job] = await selectJobs(labId, eq(labJobsTable.id, id));
   return job;
 }
 
@@ -135,21 +146,20 @@ router.post("/auth/doctor-login", async (req, res): Promise<void> => {
   res.json({ success: true, doctor: doctorData });
 });
 
-// Doktorun sadece kendi işlerini çekebileceği filtreli liste
 router.get("/doctor/:doctorId/jobs", async (req, res): Promise<void> => {
   const doctorId = Number(req.params.doctorId);
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   if (isNaN(doctorId)) {
     res.status(400).json({ error: "Geçersiz doktor ID." });
     return;
   }
-  const jobs = await selectJobs(eq(labJobsTable.doctorId, doctorId));
-  // Doktor arayüzünde fiyat bilgilerini gizli tutuyoruz
+  const jobs = await selectJobs(labId, eq(labJobsTable.doctorId, doctorId));
   const sanitized = jobs.map(({ unitPrice, totalPrice, ...rest }) => rest);
   res.json(sanitized);
 });
 
 // -------------------------------------------------------------
-// 2. KLİNİĞE ÖZEL FİYATLANDIRMA VE FİNANS ENDPOINT'LERİ (SADECE LAB)
+// 2. KLİNİĞE ÖZEL FİYATLANDIRMA VE FİNANS ENDPOINT'LERİ
 // -------------------------------------------------------------
 router.get("/clinics/:id/prices", async (req, res): Promise<void> => {
   const clinicId = Number(req.params.id);
@@ -169,7 +179,6 @@ router.post("/clinics/:id/prices", async (req, res): Promise<void> => {
     return;
   }
 
-  // Varsa güncelle, yoksa ekle
   const [existing] = await db
     .select()
     .from(clinicPricesTable)
@@ -207,16 +216,23 @@ router.delete("/clinics/prices/:priceId", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-// Kliniğin aylık ve genel toplam finans raporu
 router.get("/clinics/:id/finance-summary", async (req, res): Promise<void> => {
   const clinicId = Number(req.params.id);
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+  
+  const conditions = [eq(labJobsTable.clinicId, clinicId)];
+  if (labId !== undefined && !isNaN(labId)) {
+    // @ts-ignore
+    conditions.push(eq(labJobsTable.labId, labId));
+  }
+
   const jobs = await db
     .select({
       totalPrice: labJobsTable.totalPrice,
       createdAt: labJobsTable.createdAt,
     })
     .from(labJobsTable)
-    .where(eq(labJobsTable.clinicId, clinicId));
+    .where(and(...conditions));
 
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -270,7 +286,7 @@ router.delete("/technicians/:id", async (req, res): Promise<void> => {
 });
 
 // -------------------------------------------------------------
-// 4. LABORATUVAR AYARLARI (İSİM VE LOGO)
+// 4. LABORATUVAR AYARLARI
 // -------------------------------------------------------------
 router.get("/settings", async (_req, res): Promise<void> => {
   const [settings] = await db.select().from(labSettingsTable).limit(1);
@@ -310,7 +326,7 @@ router.post("/settings", async (req, res): Promise<void> => {
 });
 
 // -------------------------------------------------------------
-// MEVCUT SÜREÇLER, İŞLER VE KLİNİK METODLARI
+// SÜREÇLER, İŞLER VE KLİNİK METODLARI (LAB-ID FİLTRELİ)
 // -------------------------------------------------------------
 router.get("/processes", async (_req, res): Promise<void> => {
   const processes = await db
@@ -374,9 +390,10 @@ router.delete("/processes/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.get("/dashboard/summary", async (_req, res): Promise<void> => {
+router.get("/dashboard/summary", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const [jobs, processes] = await Promise.all([
-    selectJobs(),
+    selectJobs(labId),
     db.select().from(processesTable).orderBy(asc(processesTable.sortOrder)),
   ]);
   const today = startOfToday();
@@ -409,6 +426,7 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
 });
 
 router.get("/jobs", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const parsed = ListJobsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -428,11 +446,12 @@ router.get("/jobs", async (req, res): Promise<void> => {
     );
   }
 
-  const jobs = await selectJobs(conditions.length ? and(...conditions) : undefined);
+  const jobs = await selectJobs(labId, conditions.length ? and(...conditions) : undefined);
   res.json(ListJobsResponse.parse(jobs));
 });
 
 router.post("/jobs", async (req, res): Promise<void> => {
+  const labId = req.body.labId ? Number(req.body.labId) : (req.query.labId ? Number(req.query.labId) : undefined);
   const parsed = CreateJobBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -449,7 +468,6 @@ router.post("/jobs", async (req, res): Promise<void> => {
   const jobNumber = `PT-${now.getFullYear()}-${String(Date.now()).slice(-6)}`;
   const qrCode = `PTK-${randomUUID().slice(0, 8).toUpperCase()}`;
 
-  // Otomatik fiyat eşleme: Kliniğin fiyat listesinde bu işlem var mı kontrol et
   const toothCount = Number(req.body.toothCount) || 1;
   let unitPrice = "0.00";
   let totalPrice = "0.00";
@@ -477,6 +495,8 @@ router.post("/jobs", async (req, res): Promise<void> => {
     .insert(labJobsTable)
     .values({
       ...parsed.data,
+      // @ts-ignore
+      labId: labId ?? parsed.data.labId ?? null,
       jobNumber,
       qrCode,
       toothCount,
@@ -501,17 +521,18 @@ router.post("/jobs", async (req, res): Promise<void> => {
     note: "İş kaydı oluşturuldu.",
   });
 
-  const job = await getJobById(created.id);
+  const job = await getJobById(created.id, labId);
   res.status(201).json(CreateJobResponse.parse(job));
 });
 
 router.get("/jobs/qr/:qrCode", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const parsed = GetJobByQrParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [job] = await selectJobs(eq(labJobsTable.qrCode, parsed.data.qrCode));
+  const [job] = await selectJobs(labId, eq(labJobsTable.qrCode, parsed.data.qrCode));
   if (!job) {
     res.status(404).json({ error: "İş bulunamadı." });
     return;
@@ -520,12 +541,13 @@ router.get("/jobs/qr/:qrCode", async (req, res): Promise<void> => {
 });
 
 router.get("/jobs/:id", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const parsed = GetJobParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const job = await getJobById(parsed.data.id);
+  const job = await getJobById(parsed.data.id, labId);
   if (!job) {
     res.status(404).json({ error: "İş bulunamadı." });
     return;
@@ -534,6 +556,7 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
+  const labId = req.body.labId ? Number(req.body.labId) : (req.query.labId ? Number(req.query.labId) : undefined);
   const params = UpdateJobStatusParams.safeParse(req.params);
   const body = UpdateJobStatusBody.safeParse(req.body);
   if (!params.success) {
@@ -577,11 +600,10 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     note: body.data.note ?? null,
   });
 
-  const job = await getJobById(updated.id);
+  const job = await getJobById(updated.id, labId);
   res.json(UpdateJobStatusResponse.parse(job));
 });
 
-// İşin teknisyen atamalarını güncelleme
 router.patch("/jobs/:id/technicians", async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   const { assignedTechnicians } = req.body;
@@ -610,12 +632,14 @@ router.get("/jobs/:id/timeline", async (req, res): Promise<void> => {
   res.json(ListJobTimelineResponse.parse(timeline));
 });
 
-router.get("/clinics", async (_req, res): Promise<void> => {
-  const [clinics, doctors, jobs] = await Promise.all([
-    db.select().from(clinicsTable).orderBy(asc(clinicsTable.name)),
-    db.select().from(doctorsTable),
-    db.select().from(labJobsTable),
-  ]);
+router.get("/clinics", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+  
+  // Sadece o laboratuvara ait işleri ve ilişkili verileri baz alalım
+  const jobs = await selectJobs(labId);
+  const clinics = await db.select().from(clinicsTable).orderBy(asc(clinicsTable.name));
+  const doctors = await db.select().from(doctorsTable);
+
   const result = clinics.map((clinic) => ({
     ...clinic,
     doctorsCount: doctors.filter((doctor) => doctor.clinicId === clinic.id).length,
@@ -651,6 +675,7 @@ router.post("/clinics", async (req, res): Promise<void> => {
 });
 
 router.get("/clinics/:id", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const parsed = GetClinicParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -663,7 +688,7 @@ router.get("/clinics/:id", async (req, res): Promise<void> => {
   }
   const [doctors, jobs] = await Promise.all([
     db.select().from(doctorsTable).where(eq(doctorsTable.clinicId, clinic.id)),
-    db.select().from(labJobsTable).where(eq(labJobsTable.clinicId, clinic.id)),
+    selectJobs(labId, eq(labJobsTable.clinicId, clinic.id)),
   ]);
   res.json(
     GetClinicResponse.parse({
@@ -676,12 +701,13 @@ router.get("/clinics/:id", async (req, res): Promise<void> => {
 });
 
 router.get("/clinics/:id/jobs", async (req, res): Promise<void> => {
+  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   const parsed = ListClinicJobsParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const jobs = await selectJobs(eq(labJobsTable.clinicId, parsed.data.id));
+  const jobs = await selectJobs(labId, eq(labJobsTable.clinicId, parsed.data.id));
   res.json(ListClinicJobsResponse.parse(jobs));
 });
 

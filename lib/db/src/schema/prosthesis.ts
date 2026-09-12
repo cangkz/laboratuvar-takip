@@ -63,7 +63,7 @@ export const labJobsTable = pgTable("lab_jobs", {
   priority: text("priority").notNull().default("Normal"),
   status: text("status").notNull().default("waiting_pickup"),
   currentStage: text("current_stage").notNull().default("Klinikten teslim alınmayı bekliyor"),
-  
+
   // Fiyatlandırma Alanları
   toothCount: integer("tooth_count").notNull().default(1),
   unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull().default("0.00"),
@@ -108,6 +108,37 @@ export const labSettingsTable = pgTable("lab_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// 9. SAAS LABORATUVAR HESAPLARI (Ana Panel Girişi)
+export const labsTable = pgTable("labs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 10. DIŞ LABORATUVAR HESAPLARI (İş Gönderen Ortaklar)
+export const externalLabsTable = pgTable("external_labs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 11. DIŞ LABORATUVARLARDAN GELEN STL GÖNDERİMLERİ
+export const externalStlJobsTable = pgTable("external_stl_jobs", {
+  id: serial("id").primaryKey(),
+  externalLabId: integer("external_lab_id").notNull().references(() => externalLabsTable.id),
+  patientName: text("patient_name").notNull(),
+  prosthesisType: text("prosthesis_type").notNull().default(""),
+  fileName: text("file_name").notNull(),
+  fileKey: text("file_key").notNull(),
+  status: text("status").notNull().default("Bekliyor"),
+  downloadedAt: timestamp("downloaded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // INSERT ŞEMALARI
 export const insertClinicSchema = createInsertSchema(clinicsTable).omit({ id: true, createdAt: true });
 export const insertDoctorSchema = createInsertSchema(doctorsTable).omit({ id: true, createdAt: true });
@@ -116,6 +147,9 @@ export const insertTechnicianSchema = createInsertSchema(techniciansTable).omit(
 export const insertLabJobSchema = createInsertSchema(labJobsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertProcessSchema = createInsertSchema(processesTable).omit({ id: true, createdAt: true });
 export const insertLabSettingsSchema = createInsertSchema(labSettingsTable).omit({ id: true, updatedAt: true });
+export const insertLabSchema = createInsertSchema(labsTable).omit({ id: true, createdAt: true });
+export const insertExternalLabSchema = createInsertSchema(externalLabsTable).omit({ id: true, createdAt: true });
+export const insertExternalStlJobSchema = createInsertSchema(externalStlJobsTable).omit({ id: true, createdAt: true, downloadedAt: true, status: true });
 
 // TİPLER
 export type Clinic = typeof clinicsTable.$inferSelect;
@@ -126,6 +160,9 @@ export type LabJob = typeof labJobsTable.$inferSelect;
 export type TimelineEntry = typeof jobTimelineTable.$inferSelect;
 export type Process = typeof processesTable.$inferSelect;
 export type LabSettings = typeof labSettingsTable.$inferSelect;
+export type Lab = typeof labsTable.$inferSelect;
+export type ExternalLab = typeof externalLabsTable.$inferSelect;
+export type ExternalStlJob = typeof externalStlJobsTable.$inferSelect;
 
 export type InsertClinic = z.infer<typeof insertClinicSchema>;
 export type InsertDoctor = z.infer<typeof insertDoctorSchema>;
@@ -134,3 +171,6 @@ export type InsertTechnician = z.infer<typeof insertTechnicianSchema>;
 export type InsertLabJob = z.infer<typeof insertLabJobSchema>;
 export type InsertProcess = z.infer<typeof insertProcessSchema>;
 export type InsertLabSettings = z.infer<typeof insertLabSettingsSchema>;
+export type InsertLab = z.infer<typeof insertLabSchema>;
+export type InsertExternalLab = z.infer<typeof insertExternalLabSchema>;
+export type InsertExternalStlJob = z.infer<typeof insertExternalStlJobSchema>;

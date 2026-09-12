@@ -2,8 +2,6 @@ import { Router } from "express";
 import multer from "multer";
 import { ListObjectsV2Command, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getR2Client, getR2Bucket } from "../lib/r2Client.js";
-import { db, externalStls } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -59,7 +57,7 @@ router.post("/", upload.single("file"), async (req, res) => {
   }
 });
 
-// STL dosyası indir, veritabanı downloadedAt alanını ve durumunu güncelle
+// STL dosyası indir
 router.get("/:key/download", async (req, res) => {
   try {
     const { key } = req.params;
@@ -67,24 +65,8 @@ router.get("/:key/download", async (req, res) => {
     const s3 = getR2Client();
     const bucket = getR2Bucket();
 
-    // İndirme zaman damgasını logla ve veritabanında güncelle
     const downloadTime = new Date();
     console.log(`[B2B STL LOG] "${decodedKey}" dosyası karşı tarafça indirildi. Zaman: ${downloadTime.toISOString()}`);
-
-    try {
-      // Dosya adıyla eşleşen dış lab STL kaydını bulup downloadedAt ve status güncelleyelim
-      await db.update(externalStls)
-        .set({ 
-          downloadedAt: downloadTime,
-          status: "İndirildi" 
-        })
-        .where(or(
-          eq(externalStls.fileName, decodedKey),
-          eq(externalStls.fileUrl, decodedKey)
-        ));
-    } catch (dbErr) {
-      console.error("Veritabanı indirme zamanı güncellenirken hata:", dbErr);
-    }
 
     const command = new GetObjectCommand({
       Bucket: bucket,

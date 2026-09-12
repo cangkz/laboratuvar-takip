@@ -1,23 +1,48 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.tsx'
+import './index.css'
 
-// API çağrılarını backend'e yönlendir (yerelde localhost, canlıda Render adresi)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
-
-const originalFetch = window.fetch;
-window.fetch = async (input, init) => {
-  if (typeof input === 'string' && input.startsWith('/api')) {
-    input = `${API_BASE_URL}${input}`;
-  } else if (input instanceof Request && input.url.startsWith('/api')) {
-    input = new Request(`${API_BASE_URL}${input.url}`, input);
+// --- KESİN ÇÖZÜM: TÜM AĞ TRAFİĞİ (FETCH + AXIOS) İÇİN LAB ID ENJEKTÖRÜ ---
+const injectLabId = (url: string) => {
+  if (url.includes('/api/') && !url.includes('labId=')) {
+    try {
+      const authRaw = localStorage.getItem('pt_auth');
+      if (authRaw) {
+        const auth = JSON.parse(authRaw);
+        if (auth?.labId) {
+          return url + (url.includes('?') ? '&' : '?') + 'labId=' + auth.labId;
+        }
+      }
+    } catch {}
   }
-  return originalFetch(input, init);
+  return url;
 };
+
+// 1. Fetch İsteklerini Yakala (Modern Browser API)
+const originalFetch = window.fetch;
+window.fetch = async function (...args) {
+  let [resource, config] = args;
+  if (typeof resource === 'string' || resource instanceof URL) {
+    resource = injectLabId(resource.toString());
+  } else if (resource instanceof Request) {
+    const newUrl = injectLabId(resource.url);
+    resource = new Request(newUrl, resource);
+  }
+  return originalFetch(resource, config);
+};
+
+// 2. Axios / XHR İsteklerini Yakala (Eski Tip XHR)
+const originalOpen = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function(method: string, url: string | URL, ...rest: any[]) {
+  const newUrl = injectLabId(url.toString());
+  // @ts-ignore
+  return originalOpen.apply(this, [method, newUrl, ...rest]);
+};
+// -------------------------------------------------------------------------
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
-);
+  </React.StrictMode>,
+)

@@ -1,3 +1,24 @@
+// Gelişmiş Global Fetch Sarmalayıcısı - Otomatik LabID Enjeksiyonu
+const originalFetch = window.fetch;
+window.fetch = async function (input, init) {
+  let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  
+  // Eğer istek API'ye yapılıyorsa ve içinde labId yoksa sarmala
+  if (url.includes('/api/') && !url.includes('labId=')) {
+    try {
+      const authRaw = localStorage.getItem('pt_auth');
+      if (authRaw) {
+        const auth = JSON.parse(authRaw);
+        if (auth?.labId) {
+          const separator = url.includes('?') ? '&' : '?';
+          url = `${url}${separator}labId=${auth.labId}`;
+        }
+      }
+    } catch {}
+  }
+  return originalFetch(url, init);
+};
+
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -5,6 +26,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import StlPage from '@/pages/stl-page';
+import ExternalLabLoginPage from '@/pages/external-lab-login-page';
+import ExternalLabPage from '@/pages/external-lab-page';
 import {
   Activity, AlertCircle, ArrowRight, ArrowUpRight, BarChart3, Bell, Building2, CalendarDays,
   Check, ChevronRight, CircleDot, ClipboardList, Clock3, DollarSign, FileBox, FilePlus2, Gauge, HeartPulse,
@@ -549,6 +572,7 @@ function DoctorPortal() {
   const [timelineLoading, setTimelineLoading] = useState(false);
 
   const doctor = auth?.doctor;
+  const authLabId = auth?.labId;
 
   useEffect(() => {
     if (!auth || auth.role !== 'doctor') {
@@ -557,13 +581,16 @@ function DoctorPortal() {
     }
     if (doctor?.id) {
       setLoading(true);
-      fetch(`${API_BASE}/api/doctor/${doctor.id}/jobs`)
+      const url = authLabId 
+        ? `${API_BASE}/api/doctor/${doctor.id}/jobs?labId=${authLabId}`
+        : `${API_BASE}/api/doctor/${doctor.id}/jobs`;
+      fetch(url)
         .then(r => r.json())
         .then(d => { setJobs(Array.isArray(d) ? d : []); })
         .catch(() => setJobs([]))
         .finally(() => setLoading(false));
     }
-  }, [doctor?.id]);
+  }, [doctor?.id, authLabId]);
 
   const viewTimeline = async (job: any) => {
     setSelectedJob(job);
@@ -752,7 +779,14 @@ function DoctorPortal() {
 }
 
 function Dashboard() {
-  const summary = useGetDashboardSummary({ query:{ queryKey:getGetDashboardSummaryQueryKey() }});
+  const auth = getAuth();
+  const labId = auth?.labId;
+  
+  const summary = useGetDashboardSummary(
+    labId ? { labId } : undefined,
+    { query: { queryKey: [...getGetDashboardSummaryQueryKey(), labId] } }
+  );
+  
   const data = summary.data;
   const statusCounts = data?.statusCounts || [];
   return (
@@ -859,8 +893,14 @@ function Dashboard() {
 }
 
 function Jobs() {
+  const auth = getAuth();
+  const labId = auth?.labId;
+
   const [q,setQ] = useState(''); const [status,setStatus] = useState('');
-  const jobs = useListJobs({ q:q || undefined, status:status || undefined }, { query:{ queryKey:getListJobsQueryKey({ q:q || undefined, status:status || undefined }) }});
+  const jobs = useListJobs(
+    { q:q || undefined, status:status || undefined, labId: labId ? Number(labId) : undefined },
+    { query:{ queryKey:[...getListJobsQueryKey({ q:q || undefined, status:status || undefined }), labId] }}
+  );
   return (
     <Shell>
       <div className="content-wrap fade-up">
@@ -938,8 +978,11 @@ function Jobs() {
 }
 
 function JobDetail() {
+  const auth = getAuth();
+  const labId = auth?.labId;
+
   const params = useParams<{id:string}>(); const id = Number(params.id);
-  const job = useGetJob(id, { query:{ enabled:!!id, queryKey:getGetJobQueryKey(id) }});
+  const job = useGetJob(id, labId ? { labId } : undefined, { query:{ enabled:!!id, queryKey:[...getGetJobQueryKey(id), labId] }});
   const timeline = useListJobTimeline(id, { query:{ enabled:!!id, queryKey:getListJobTimelineQueryKey(id) }});
   const update = useUpdateJobStatus();
   const [note,setNote] = useState('');
@@ -973,7 +1016,7 @@ function JobDetail() {
   const nextStage = job.data ? stages[Math.min(stages.indexOf(job.data.status)+1, stages.length-1)] : '';
   const advance = () => {
     if (!job.data || !nextStage || nextStage === job.data.status) return;
-    update.mutate({id, data:{status:nextStage,note:note || undefined}}, {
+    update.mutate({id, data:{status:nextStage,note:note || undefined}, labId: labId ? Number(labId) : undefined}, {
       onSuccess:()=>{
         setNote('');
         queryClient.invalidateQueries({queryKey:getGetJobQueryKey(id)});
@@ -1103,7 +1146,10 @@ function JobDetail() {
 }
 
 function NewJob() {
-  const clinics = useListClinics({ query: { queryKey: getListClinicsQueryKey() } });
+  const auth = getAuth();
+  const labId = auth?.labId;
+
+  const clinics = useListClinics(labId ? { labId } : undefined, { query: { queryKey: [...getListClinicsQueryKey(), labId] } });
   const doctors = useListDoctors({}, { query: { queryKey: getListDoctorsQueryKey({}) } });
   const create = useCreateJob();
   const [, setLocation] = useLocation();
@@ -1155,6 +1201,7 @@ function NewJob() {
 
     create.mutate(
       {
+        labId: labId ? Number(labId) : undefined,
         data: {
           ...form,
           clinicId: Number(form.clinicId),
@@ -1281,8 +1328,11 @@ function NewJob() {
 }
 
 function Scan() {
+  const auth = getAuth();
+  const labId = auth?.labId;
+
   const [qr,setQr]=useState(''); const [submitted,setSubmitted]=useState(''); const [cameraOpen,setCameraOpen]=useState(false); const scannerRef=useRef<Html5QrcodeScanner | null>(null); const [,setLocation]=useLocation();
-  const result=useGetJobByQr(submitted,{query:{enabled:!!submitted,queryKey:getGetJobByQrQueryKey(submitted)}});
+  const result=useGetJobByQr(submitted, labId ? { labId } : undefined, {query:{enabled:!!submitted,queryKey:[...getGetJobByQrQueryKey(submitted), labId]}});
   const search=(e:FormEvent)=>{e.preventDefault(); if(qr.trim())setSubmitted(qr.trim())};
   useEffect(() => { if(result.data) setLocation(`/jobs/${result.data.id}`); }, [result.data, setLocation]);
 
@@ -1341,12 +1391,16 @@ function Scan() {
 }
 
 function Clinics() {
+  const auth = getAuth();
+  const labId = auth?.labId;
+
   const [open,setOpen]=useState(false); const [form,setForm]=useState({name:'',code:'',address:'',phone:''});
-  const clinics=useListClinics({query:{queryKey:getListClinicsQueryKey()}}); const create=useCreateClinic();
+  const clinics=useListClinics(labId ? { labId } : undefined, {query:{queryKey:[...getListClinicsQueryKey(), labId]}}); 
+  const create=useCreateClinic();
   const submit=(e:FormEvent)=>{
     e.preventDefault();
     if(!form.name||!form.code)return;
-    create.mutate({data:form},{
+    create.mutate({labId: labId ? Number(labId) : undefined, data:form},{
       onSuccess:()=>{
         setOpen(false);
         setForm({name:'',code:'',address:'',phone:''});
@@ -1411,9 +1465,12 @@ function Clinics() {
 }
 
 function ClinicDetail() {
+  const auth = getAuth();
+  const labId = auth?.labId;
+
   const id=Number(useParams<{id:string}>().id);
-  const clinic=useGetClinic(id,{query:{enabled:!!id,queryKey:getGetClinicQueryKey(id)}});
-  const jobs = useListClinicJobs(id, { query: { enabled: !!id, queryKey: getListClinicsQueryKey() } });
+  const clinic=useGetClinic(id, labId ? { labId } : undefined, {query:{enabled:!!id,queryKey:[...getGetClinicQueryKey(id), labId]}});
+  const jobs = useListClinicJobs(id, labId ? { labId } : undefined, { query: { enabled: !!id, queryKey: [...getListClinicsQueryKey(), id, labId] } });
 
   const [prices, setPrices] = useState<any[]>([]);
   const [finance, setFinance] = useState<any>(null);
@@ -1422,10 +1479,11 @@ function ClinicDetail() {
 
   const loadPrices = () => {
     fetch(`${API_BASE}/api/clinics/${id}/prices`).then(r=>r.json()).then(d=>setPrices(Array.isArray(d)?d:[])).catch(()=>undefined);
-    fetch(`${API_BASE}/api/clinics/${id}/finance-summary`).then(r=>r.json()).then(d=>setFinance(d)).catch(()=>undefined);
+    const finUrl = labId ? `${API_BASE}/api/clinics/${id}/finance-summary?labId=${labId}` : `${API_BASE}/api/clinics/${id}/finance-summary`;
+    fetch(finUrl).then(r=>r.json()).then(d=>setFinance(d)).catch(()=>undefined);
   };
 
-  useEffect(() => { if (id) loadPrices(); }, [id]);
+  useEffect(() => { if (id) loadPrices(); }, [id, labId]);
 
   const addPrice = (e: FormEvent) => {
     e.preventDefault();
@@ -1555,7 +1613,10 @@ function Doctors() {
   const [open, setOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
-  const clinics = useListClinics({ query: { queryKey: getListClinicsQueryKey() } });
+  const auth = getAuth();
+  const labId = auth?.labId;
+
+  const clinics = useListClinics(labId ? { labId } : undefined, { query: { queryKey: [...getListClinicsQueryKey(), labId] } });
   const doctors = useListDoctors(
     { clinicId: clinicId ? Number(clinicId) : undefined },
     { query: { queryKey: getListDoctorsQueryKey({ clinicId: clinicId ? Number(clinicId) : undefined }) } }
@@ -1916,24 +1977,26 @@ function SettingsPage() {
 function Router() {
   return (
     <RoutedErrorBoundary>
-      <Switch>
-        <Route path="/" component={LoginPage} />
-        <Route path="/admin" component={AdminPanel} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/doctor-portal" component={DoctorPortal} />
-        <Route path="/jobs" component={Jobs} />
-        <Route path="/jobs/:id" component={JobDetail} />
-        <Route path="/new-job" component={NewJob} />
-        <Route path="/scan" component={Scan} />
-        <Route path="/clinics" component={Clinics} />
-        <Route path="/clinics/:id" component={ClinicDetail} />
-        <Route path="/doctors" component={Doctors} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route path="/stl" component={StlPage} />
-        <Route component={NotFound} />
-      </Switch>
-    </RoutedErrorBoundary>
-  );
+    <Switch>
+      <Route path="/" component={LoginPage} />
+      <Route path="/admin" component={AdminPanel} />
+      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/doctor-portal" component={DoctorPortal} />
+      <Route path="/jobs" component={Jobs} />
+      <Route path="/jobs/:id" component={JobDetail} />
+      <Route path="/new-job" component={NewJob} />
+      <Route path="/scan" component={Scan} />
+      <Route path="/clinics" component={Clinics} />
+      <Route path="/clinics/:id" component={ClinicDetail} />
+      <Route path="/doctors" component={Doctors} />
+      <Route path="/settings" component={SettingsPage} />
+      <Route path="/stl" component={StlPage} />
+      <Route path="/external-lab-login" component={ExternalLabLoginPage} />
+      <Route path="/external-lab" component={ExternalLabPage} />
+      <Route component={NotFound} />
+    </Switch>
+  </RoutedErrorBoundary>
+);
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {

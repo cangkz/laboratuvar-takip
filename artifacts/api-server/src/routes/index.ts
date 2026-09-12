@@ -2,28 +2,27 @@ import { Router } from "express";
 import stlRouter from "./stl.js";
 import healthRouter from "./health.js";
 import prosthesisRouter from "./prosthesis.js";
-import { db, labs, externalLabs, externalStls } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 const router = Router();
 
-// Diğer rotaların yanı sıra stl router'ı ekliyoruz
 router.use("/stl", stlRouter);
 router.use(healthRouter);
 router.use(prosthesisRouter);
 
-// Super Admin: Kayıtlı laboratuvarları veritabanından listele
+// Super Admin: Kayıtlı laboratuvarları listele
 router.get("/admin/labs", async (req, res) => {
   try {
-    const allLabs = await db.select().from(labs);
-    res.json(allLabs);
+    const result = await db.execute(sql`SELECT * FROM labs`);
+    res.json(result.rows || result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Laboratuvarlar listelenirken hata oluştu." });
   }
 });
 
-// Super Admin: Yeni laboratuvar oluştur (Kalıcı Veritabanı Kaydı)
+// Super Admin: Yeni laboratuvar oluştur
 router.post("/admin/labs", async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
@@ -31,19 +30,16 @@ router.post("/admin/labs", async (req, res) => {
   }
 
   try {
-    // Aynı e-posta ile kayıt var mı kontrolü (Veritabanından)
-    const existing = await db.select().from(labs).where(eq(labs.email, email));
-    if (existing.length > 0) {
+    const existing = await db.execute(sql`SELECT * FROM labs WHERE email = ${email}`);
+    const rows = existing.rows || existing;
+    if (rows.length > 0) {
       return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir laboratuvar kayıtlı." });
     }
 
-    // Veritabanına kalıcı olarak ekle
-    const [newLab] = await db.insert(labs).values({
-      name,
-      email,
-      password,
-    }).returning();
-
+    const result = await db.execute(
+      sql`INSERT INTO labs (name, email, password) VALUES (${name}, ${email}, ${password}) RETURNING *`
+    );
+    const newLab = (result.rows || result)[0];
     res.json({ success: true, lab: newLab });
   } catch (err) {
     console.error(err);
@@ -51,11 +47,12 @@ router.post("/admin/labs", async (req, res) => {
   }
 });
 
-// Laboratuvar Giriş (Login) Ucu (Veritabanı Kontrollü)
+// Laboratuvar Giriş
 router.post("/auth/lab-login", async (req, res) => {
   const { email, password } = req.body;
   try {
-    const [lab] = await db.select().from(labs).where(eq(labs.email, email));
+    const result = await db.execute(sql`SELECT * FROM labs WHERE email = ${email}`);
+    const lab = (result.rows || result)[0];
 
     if (!lab || lab.password !== password) {
       return res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
@@ -72,14 +69,11 @@ router.post("/auth/lab-login", async (req, res) => {
   }
 });
 
-
-// --- B2B LAB-TO-LAB: Dış Laboratuvar Yönetimi ve STL Takibi ---
-
 // Merkez Admin: Dış laboratuvarları listele
 router.get("/admin/external-labs", async (req, res) => {
   try {
-    const list = await db.select().from(externalLabs);
-    res.json(list);
+    const result = await db.execute(sql`SELECT * FROM external_labs`);
+    res.json(result.rows || result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Dış laboratuvarlar listelenirken hata oluştu." });
@@ -94,13 +88,16 @@ router.post("/admin/external-labs", async (req, res) => {
   }
 
   try {
-    const existing = await db.select().from(externalLabs).where(eq(externalLabs.email, email));
-    if (existing.length > 0) {
+    const existing = await db.execute(sql`SELECT * FROM external_labs WHERE email = ${email}`);
+    const rows = existing.rows || existing;
+    if (rows.length > 0) {
       return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir dış laboratuvar kayıtlı." });
     }
 
-    const [newLab] = await db.insert(externalLabs).values({ name, email, password }).returning();
-    res.json({ success: true, lab: newLab });
+    const result = await db.execute(
+      sql`INSERT INTO external_labs (name, email, password) VALUES (${name}, ${email}, ${password}) RETURNING *`
+    );
+    res.json({ success: true, lab: (result.rows || result)[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Dış laboratuvar eklenirken hata oluştu." });
@@ -110,8 +107,8 @@ router.post("/admin/external-labs", async (req, res) => {
 // Merkez Lab: Gelen tüm dış STL dosyalarını listele
 router.get("/admin/external-stls", async (req, res) => {
   try {
-    const list = await db.select().from(externalStls);
-    res.json(list);
+    const result = await db.execute(sql`SELECT * FROM external_stls`);
+    res.json(result.rows || result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "STL dosyaları getirilemedi." });
@@ -122,15 +119,10 @@ router.get("/admin/external-stls", async (req, res) => {
 router.post("/admin/external-stls/:id/download", async (req, res) => {
   const stlId = Number(req.params.id);
   try {
-    const [updated] = await db.update(externalStls)
-      .set({ 
-        downloadedAt: new Date(),
-        status: "İndirildi" 
-      })
-      .where(eq(externalStls.id, stlId))
-      .returning();
-
-    res.json({ success: true, stl: updated });
+    const result = await db.execute(
+      sql`UPDATE external_stls SET downloaded_at = ${new Date()}, status = 'İndirildi' WHERE id = ${stlId} RETURNING *`
+    );
+    res.json({ success: true, stl: (result.rows || result)[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Dosya indirme durumu güncellenemedi." });
@@ -141,7 +133,8 @@ router.post("/admin/external-stls/:id/download", async (req, res) => {
 router.post("/auth/external-lab-login", async (req, res) => {
   const { email, password } = req.body;
   try {
-    const [lab] = await db.select().from(externalLabs).where(eq(externalLabs.email, email));
+    const result = await db.execute(sql`SELECT * FROM external_labs WHERE email = ${email}`);
+    const lab = (result.rows || result)[0];
 
     if (!lab || lab.password !== password) {
       return res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
@@ -166,27 +159,22 @@ router.post("/external-lab/stls", async (req, res) => {
   }
 
   try {
-    const [stlRecord] = await db.insert(externalStls).values({
-      externalLabId,
-      patientName,
-      fileName,
-      fileUrl,
-      status: "Bekliyor"
-    }).returning();
-
-    res.json({ success: true, stl: stlRecord });
+    const result = await db.execute(
+      sql`INSERT INTO external_stls (external_lab_id, patient_name, file_name, file_url, status) VALUES (${externalLabId}, ${patientName}, ${fileName}, ${fileUrl}, 'Bekliyor') RETURNING *`
+    );
+    res.json({ success: true, stl: (result.rows || result)[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "STL yüklenirken hata oluştu." });
   }
 });
 
-// Dış Laboratuvar: Kendi gönderdiği STL'leri ve merkez labın indirme (downloadedAt) durumunu listele
+// Dış Laboratuvar: Kendi gönderdiği STL'leri listele
 router.get("/external-lab/stls/:labId", async (req, res) => {
   const labId = Number(req.params.labId);
   try {
-    const stls = await db.select().from(externalStls).where(eq(externalStls.externalLabId, labId));
-    res.json(stls);
+    const result = await db.execute(sql`SELECT * FROM external_stls WHERE external_lab_id = ${labId}`);
+    res.json(result.rows || result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Dosyalar listelenemedi." });
