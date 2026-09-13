@@ -40,7 +40,7 @@ import {
   getListClinicsQueryKey, getListDoctorsQueryKey, getListJobTimelineQueryKey,
   getListJobsQueryKey, useCreateClinic, useCreateJob, useGetClinic, useGetDashboardSummary,
   useGetJob, useGetJobByQr, useHealthCheck, useListClinicJobs, useListClinics, useListDoctors,
-  useListJobTimeline, useListJobs, useUpdateJobStatus
+  useListJobTimeline, useListJobs, useUpdateJobStatus, setBaseUrl
 } from '@workspace/api-client-react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { QRCodeSVG } from 'qrcode.react';
@@ -54,6 +54,8 @@ import {
 } from 'wouter';
 
 const API_BASE = 'https://laboratuvar-takip.onrender.com';
+const API_BASE = 'https://laboratuvar-takip.onrender.com';
+setBaseUrl(API_BASE);
 const queryClient = new QueryClient();
 
 type IconType = typeof LayoutDashboard;
