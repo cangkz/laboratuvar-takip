@@ -783,7 +783,6 @@ function Dashboard() {
   const labId = auth?.labId;
   
   const summary = useGetDashboardSummary(
-    labId ? { labId } : undefined,
     { query: { queryKey: [...getGetDashboardSummaryQueryKey(), labId] } }
   );
   
@@ -898,7 +897,7 @@ function Jobs() {
 
   const [q,setQ] = useState(''); const [status,setStatus] = useState('');
   const jobs = useListJobs(
-    { q:q || undefined, status:status || undefined, labId: labId ? Number(labId) : undefined },
+    { q:q || undefined, status:status || undefined },
     { query:{ queryKey:[...getListJobsQueryKey({ q:q || undefined, status:status || undefined }), labId] }}
   );
   return (
@@ -982,7 +981,7 @@ function JobDetail() {
   const labId = auth?.labId;
 
   const params = useParams<{id:string}>(); const id = Number(params.id);
-  const job = useGetJob(id, labId ? { labId } : undefined, { query:{ enabled:!!id, queryKey:[...getGetJobQueryKey(id), labId] }});
+  const job = useGetJob(id, { query:{ enabled:!!id, queryKey:[...getGetJobQueryKey(id), labId] }});
   const timeline = useListJobTimeline(id, { query:{ enabled:!!id, queryKey:getListJobTimelineQueryKey(id) }});
   const update = useUpdateJobStatus();
   const [note,setNote] = useState('');
@@ -1016,7 +1015,7 @@ function JobDetail() {
   const nextStage = job.data ? stages[Math.min(stages.indexOf(job.data.status)+1, stages.length-1)] : '';
   const advance = () => {
     if (!job.data || !nextStage || nextStage === job.data.status) return;
-    update.mutate({id, data:{status:nextStage,note:note || undefined}, labId: labId ? Number(labId) : undefined}, {
+    update.mutate({id, data:{status:nextStage,note:note || undefined}}, {
       onSuccess:()=>{
         setNote('');
         queryClient.invalidateQueries({queryKey:getGetJobQueryKey(id)});
@@ -1149,7 +1148,7 @@ function NewJob() {
   const auth = getAuth();
   const labId = auth?.labId;
 
-  const clinics = useListClinics(labId ? { labId } : undefined, { query: { queryKey: [...getListClinicsQueryKey(), labId] } });
+  const clinics = useListClinics({ query: { queryKey: [...getListClinicsQueryKey(), labId] } });
   const doctors = useListDoctors({}, { query: { queryKey: getListDoctorsQueryKey({}) } });
   const create = useCreateJob();
   const [, setLocation] = useLocation();
@@ -1201,7 +1200,6 @@ function NewJob() {
 
     create.mutate(
       {
-        labId: labId ? Number(labId) : undefined,
         data: {
           ...form,
           clinicId: Number(form.clinicId),
@@ -1332,7 +1330,7 @@ function Scan() {
   const labId = auth?.labId;
 
   const [qr,setQr]=useState(''); const [submitted,setSubmitted]=useState(''); const [cameraOpen,setCameraOpen]=useState(false); const scannerRef=useRef<Html5QrcodeScanner | null>(null); const [,setLocation]=useLocation();
-  const result=useGetJobByQr(submitted, labId ? { labId } : undefined, {query:{enabled:!!submitted,queryKey:[...getGetJobByQrQueryKey(submitted), labId]}});
+  const result=useGetJobByQr(submitted, {query:{enabled:!!submitted,queryKey:[...getGetJobByQrQueryKey(submitted), labId]}});
   const search=(e:FormEvent)=>{e.preventDefault(); if(qr.trim())setSubmitted(qr.trim())};
   useEffect(() => { if(result.data) setLocation(`/jobs/${result.data.id}`); }, [result.data, setLocation]);
 
@@ -1395,12 +1393,12 @@ function Clinics() {
   const labId = auth?.labId;
 
   const [open,setOpen]=useState(false); const [form,setForm]=useState({name:'',code:'',address:'',phone:''});
-  const clinics=useListClinics(labId ? { labId } : undefined, {query:{queryKey:[...getListClinicsQueryKey(), labId]}}); 
+  const clinics=useListClinics({query:{queryKey:[...getListClinicsQueryKey(), labId]}}); 
   const create=useCreateClinic();
   const submit=(e:FormEvent)=>{
     e.preventDefault();
     if(!form.name||!form.code)return;
-    create.mutate({labId: labId ? Number(labId) : undefined, data:form},{
+    create.mutate({data:form},{
       onSuccess:()=>{
         setOpen(false);
         setForm({name:'',code:'',address:'',phone:''});
@@ -1469,8 +1467,8 @@ function ClinicDetail() {
   const labId = auth?.labId;
 
   const id=Number(useParams<{id:string}>().id);
-  const clinic=useGetClinic(id, labId ? { labId } : undefined, {query:{enabled:!!id,queryKey:[...getGetClinicQueryKey(id), labId]}});
-  const jobs = useListClinicJobs(id, labId ? { labId } : undefined, { query: { enabled: !!id, queryKey: [...getListClinicsQueryKey(), id, labId] } });
+  const clinic=useGetClinic(id, {query:{enabled:!!id,queryKey:[...getGetClinicQueryKey(id), labId]}});
+  const jobs = useListClinicJobs(id, { query: { enabled: !!id, queryKey: [...getListClinicsQueryKey(), id, labId] } });
 
   const [prices, setPrices] = useState<any[]>([]);
   const [finance, setFinance] = useState<any>(null);
@@ -1616,7 +1614,7 @@ function Doctors() {
   const auth = getAuth();
   const labId = auth?.labId;
 
-  const clinics = useListClinics(labId ? { labId } : undefined, { query: { queryKey: [...getListClinicsQueryKey(), labId] } });
+  const clinics = useListClinics({ query: { queryKey: [...getListClinicsQueryKey(), labId] } });
   const doctors = useListDoctors(
     { clinicId: clinicId ? Number(clinicId) : undefined },
     { query: { queryKey: getListDoctorsQueryKey({ clinicId: clinicId ? Number(clinicId) : undefined }) } }
