@@ -8,3 +8,5 @@ dist/
 .conversation/
 .agents/
 .idea/
+Add-Content .gitignore "`ntsconfig.tsbuildinfo"
+**/tsconfig.tsbuildinfo
