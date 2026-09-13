@@ -60,10 +60,6 @@ const stageLabels: Record<string, string> = {
 // Laboratuvar ID'sine göre filtreleme destekli ortak iş seçici
 async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | ReturnType<typeof and>) {
   const conditions = [];
-  if (labId !== undefined && !isNaN(labId)) {
-    // @ts-ignore
-    conditions.push(eq(labJobsTable.labId, labId));
-  }
   if (where) {
     conditions.push(where);
   }
@@ -71,7 +67,6 @@ async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | Return
   return db
     .select({
       id: labJobsTable.id,
-      labId: labJobsTable.labId,
       jobNumber: labJobsTable.jobNumber,
       qrCode: labJobsTable.qrCode,
       clinicId: labJobsTable.clinicId,
@@ -101,8 +96,8 @@ async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | Return
     .orderBy(desc(labJobsTable.updatedAt));
 }
 
-async function getJobById(id: number, labId?: number) {
-  const [job] = await selectJobs(labId, eq(labJobsTable.id, id));
+async function getJobById(id: number) {
+  const [job] = await selectJobs(eq(labJobsTable.id, id));
   return job;
 }
 
@@ -221,10 +216,6 @@ router.get("/clinics/:id/finance-summary", async (req, res): Promise<void> => {
   const labId = req.query.labId ? Number(req.query.labId) : undefined;
   
   const conditions = [eq(labJobsTable.clinicId, clinicId)];
-  if (labId !== undefined && !isNaN(labId)) {
-    // @ts-ignore
-    conditions.push(eq(labJobsTable.labId, labId));
-  }
 
   const jobs = await db
     .select({
@@ -495,8 +486,6 @@ router.post("/jobs", async (req, res): Promise<void> => {
     .insert(labJobsTable)
     .values({
       ...parsed.data,
-      // @ts-ignore
-      labId: labId ?? parsed.data.labId ?? null,
       jobNumber,
       qrCode,
       toothCount,
@@ -521,7 +510,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
     note: "İş kaydı oluşturuldu.",
   });
 
-  const job = await getJobById(created.id, labId);
+  const job = await getJobById(created.id);
   res.status(201).json(CreateJobResponse.parse(job));
 });
 
@@ -547,7 +536,7 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const job = await getJobById(parsed.data.id, labId);
+  const job = await getJobById(parsed.data.id);
   if (!job) {
     res.status(404).json({ error: "İş bulunamadı." });
     return;
@@ -600,7 +589,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     note: body.data.note ?? null,
   });
 
-  const job = await getJobById(updated.id, labId);
+  const job = await getJobById(updated.id);
   res.json(UpdateJobStatusResponse.parse(job));
 });
 
