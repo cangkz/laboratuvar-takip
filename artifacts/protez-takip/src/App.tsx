@@ -52,12 +52,9 @@ import {
   useLocation,
   Router as WouterRouter,
 } from 'wouter';
-
-const API_BASE = 'https://laboratuvar-takip.onrender.com';
 const API_BASE = 'https://laboratuvar-takip.onrender.com';
 setBaseUrl(API_BASE);
 const queryClient = new QueryClient();
-
 type IconType = typeof LayoutDashboard;
 const statusMeta: Record<string, { label: string; tone: string; icon: IconType }> = {
   waiting_pickup: { label: 'Alım bekliyor', tone: 'blue', icon: Truck },
@@ -130,7 +127,6 @@ function Logo() {
     </Link>
   );
 }
-
 function Shell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [mobileMenu, setMobileMenu] = useState(false);
