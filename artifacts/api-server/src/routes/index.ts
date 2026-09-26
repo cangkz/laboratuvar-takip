@@ -1,12 +1,18 @@
 import { Router } from "express";
+import multer from "multer";
+import { randomUUID } from "node:crypto";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import stlRouter from "./stl.js";
 import healthRouter from "./health.js";
 import prosthesisRouter from "./prosthesis.js";
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { db, externalStlJobsTable } from "@workspace/db";
+import { sql, eq, desc } from "drizzle-orm";
 import { signLabToken } from "../middlewares/labAuth.js";
+import { requireExternalLabAuth, type ExternalLabAuthedRequest } from "../middlewares/externalLabAuth.js";
+import { getR2Client, getR2Bucket } from "../lib/r2Client.js";
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.use("/stl", stlRouter);
 router.use(healthRouter);
@@ -161,35 +167,75 @@ router.post("/auth/external-lab-login", async (req, res) => {
   }
 });
 
-// Dış Laboratuvar: Yeni STL dosyası yükle/gönder
-router.post("/external-lab/stls", async (req, res) => {
-  const { externalLabId, patientName, fileName, fileUrl } = req.body;
-  if (!externalLabId || !patientName || !fileName || !fileUrl) {
-    res.status(400).json({ error: "Eksik alan bıraktınız." });
-    return;
-  }
+// Dış Laboratuvar: Yeni iş ve STL dosyası gönder
+// NOT: Bu route önceden JSON body ({ externalLabId, fileUrl, ... }) bekliyordu ve
+// hiç auth kontrolü yapmıyordu; ama frontend (external-lab-page.tsx) multipart
+// form-data (gerçek dosya) ve Bearer token gönderiyordu — ikisi hiç uyuşmuyordu.
+// Şimdi stl.ts'deki R2 upload deseniyle aynı şekilde çalışıyor: dosya doğrudan
+// Cloudflare R2'ye yükleniyor, kayıt externalStlJobsTable'a ekleniyor.
+router.post(
+  "/external-lab/stls",
+  requireExternalLabAuth,
+  upload.single("file"),
+  async (req: ExternalLabAuthedRequest, res) => {
+    try {
+      const { patientName, prosthesisType } = req.body;
+      if (!patientName || !req.file) {
+        res.status(400).json({ error: "Eksik alan bıraktınız." });
+        return;
+      }
 
-  try {
-    const result = await db.execute(
-      sql`INSERT INTO external_stls (external_lab_id, patient_name, file_name, file_url, status) VALUES (${externalLabId}, ${patientName}, ${fileName}, ${fileUrl}, 'Bekliyor') RETURNING *`
-    );
-    res.json({ success: true, stl: (result.rows || result)[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "STL yüklenirken hata oluştu." });
-  }
-});
+      const s3 = getR2Client();
+      const bucket = getR2Bucket();
+      const originalName = req.file.originalname || "dosya";
+      const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
+      const fileKey = `external/${Date.now()}-${randomUUID().slice(0, 8)}-${safeName}`;
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: fileKey,
+          Body: req.file.buffer,
+          ContentType: req.file.mimetype || "application/octet-stream",
+        })
+      );
+
+      const [created] = await db
+        .insert(externalStlJobsTable)
+        .values({
+          externalLabId: req.externalLab!.id,
+          patientName,
+          prosthesisType: prosthesisType || "",
+          fileName: originalName,
+          fileKey,
+        })
+        .returning();
+
+      res.status(201).json({ success: true, job: created });
+    } catch (err: any) {
+      console.error("Dış laboratuvar STL yükleme hatası:", err);
+      res.status(500).json({ error: "STL yüklenirken hata oluştu.", details: err.message });
+    }
+  },
+);
 
 // Dış Laboratuvar: Kendi gönderdiği STL'leri listele
-router.get("/external-lab/stls/:labId", async (req, res) => {
-  const labId = Number(req.params.labId);
-  try {
-    const result = await db.execute(sql`SELECT * FROM external_stls WHERE external_lab_id = ${labId}`);
-    res.json(result.rows || result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Dosyalar listelenemedi." });
-  }
-});
+router.get(
+  "/external-lab/stls",
+  requireExternalLabAuth,
+  async (req: ExternalLabAuthedRequest, res) => {
+    try {
+      const jobs = await db
+        .select()
+        .from(externalStlJobsTable)
+        .where(eq(externalStlJobsTable.externalLabId, req.externalLab!.id))
+        .orderBy(desc(externalStlJobsTable.createdAt));
+      res.json(jobs);
+    } catch (err: any) {
+      console.error("Dış laboratuvar STL listeleme hatası:", err);
+      res.status(500).json({ error: "Dosyalar listelenemedi." });
+    }
+  },
+);
 
 export default router;
