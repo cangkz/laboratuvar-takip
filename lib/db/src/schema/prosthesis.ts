@@ -10,9 +10,35 @@ import {
 } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 
-// 1. KLİNİKLER
+// 1. SAAS LABORATUVAR HESAPLARI (Ana Panel Girişi)
+// Diğer tüm tablolar labId ile buna referans veriyor, bu yüzden en üstte tanımlı.
+export const labsTable = pgTable("labs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 2. DIŞ LABORATUVAR HESAPLARI (İş Gönderen Ortaklar)
+export const externalLabsTable = pgTable("external_labs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 3. KLİNİKLER
+// NOT: labId'de geçici ".default(1)" var — bu SADECE mevcut kayıtları olan
+// tabloya NOT NULL kolon eklerken veri kaybını (drizzle-kit'in "truncate"
+// önerisini) önlemek için. Migration/push başarıyla tamamlandıktan SONRA bu
+// dosyadaki tüm ".default(1)" ifadelerini kaldırıp tekrar push/generate
+// yapılmalı — aksi halde yeni insert'lerde labId unutulursa sessizce 1'e
+// düşer, bu istenmeyen bir durumdur.
 export const clinicsTable = pgTable("clinics", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").notNull().default(1).references(() => labsTable.id),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
   address: text("address").notNull().default(""),
@@ -20,9 +46,10 @@ export const clinicsTable = pgTable("clinics", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// 2. DOKTORLAR (Kendi Giriş Bilgileriyle)
+// 4. DOKTORLAR (Kendi Giriş Bilgileriyle)
 export const doctorsTable = pgTable("doctors", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").notNull().default(1).references(() => labsTable.id),
   clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   name: text("name").notNull(),
   specialty: text("specialty").notNull().default("Diş Hekimi"),
@@ -32,7 +59,7 @@ export const doctorsTable = pgTable("doctors", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// 3. KLİNİĞE ÖZEL FİYATLANDIRMA (Sadece Lab Görür)
+// 5. KLİNİĞE ÖZEL FİYATLANDIRMA (Sadece Lab Görür)
 export const clinicPricesTable = pgTable("clinic_prices", {
   id: serial("id").primaryKey(),
   clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
@@ -41,17 +68,19 @@ export const clinicPricesTable = pgTable("clinic_prices", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// 4. BÖLÜM VE TEKNİSYENLER (İşi Yapan Kişiler)
+// 6. BÖLÜM VE TEKNİSYENLER (İşi Yapan Kişiler)
 export const techniciansTable = pgTable("technicians", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").notNull().default(1).references(() => labsTable.id),
   name: text("name").notNull(), // Örn: 'Can', 'Yavuz'
   department: text("department").notNull(), // Örn: 'Porselen', 'CAD-CAM Tasarım'
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// 5. İŞ EMRİ TABLOSU
+// 7. İŞ EMRİ TABLOSU
 export const labJobsTable = pgTable("lab_jobs", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").notNull().default(1).references(() => labsTable.id),
   jobNumber: text("job_number").notNull().unique(),
   qrCode: text("qr_code").notNull().unique(),
   clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
@@ -78,7 +107,7 @@ export const labJobsTable = pgTable("lab_jobs", {
   notes: text("notes"),
 });
 
-// 6. ZAMAN ÇİZELGESİ / GEÇMİŞ
+// 8. ZAMAN ÇİZELGESİ / GEÇMİŞ
 export const jobTimelineTable = pgTable("job_timeline", {
   id: serial("id").primaryKey(),
   jobId: integer("job_id").notNull().references(() => labJobsTable.id),
@@ -90,9 +119,14 @@ export const jobTimelineTable = pgTable("job_timeline", {
   note: text("note"),
 });
 
-// 7. AŞAMA / SÜREÇLER
+// 9. AŞAMA / SÜREÇLER
+// labId NULLABLE: null olan satırlar tüm laboratuvarlarda ortak görünen
+// varsayılan süreçlerdir (isDefault: true genelde bunlarla birlikte gider).
+// labId dolu olan satırlar sadece o laboratuvarın kendi eklediği özel süreçlerdir.
+// (Nullable olduğu için buraya geçici default eklemeye gerek yok.)
 export const processesTable = pgTable("processes", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").references(() => labsTable.id),
   key: text("key").notNull().unique(),
   name: text("name").notNull().unique(),
   sortOrder: integer("sort_order").notNull().default(0),
@@ -100,30 +134,13 @@ export const processesTable = pgTable("processes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// 8. LABORATUVAR AYARLARI (İsim ve Logo)
+// 10. LABORATUVAR AYARLARI (İsim ve Logo)
 export const labSettingsTable = pgTable("lab_settings", {
   id: serial("id").primaryKey(),
+  labId: integer("lab_id").notNull().default(1).references(() => labsTable.id),
   labName: text("lab_name").notNull().default("Dental Protez Laboratuvarı"),
   logoUrl: text("logo_url").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-// 9. SAAS LABORATUVAR HESAPLARI (Ana Panel Girişi)
-export const labsTable = pgTable("labs", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  password: text("password").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-// 10. DIŞ LABORATUVAR HESAPLARI (İş Gönderen Ortaklar)
-export const externalLabsTable = pgTable("external_labs", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  password: text("password").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // 11. DIŞ LABORATUVARLARDAN GELEN STL GÖNDERİMLERİ

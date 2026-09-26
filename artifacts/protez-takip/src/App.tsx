@@ -1,22 +1,25 @@
-// Gelişmiş Global Fetch Sarmalayıcısı - Otomatik LabID Enjeksiyonu
+// Gelişmiş Global Fetch Sarmalayıcısı - Otomatik Authorization Header Enjeksiyonu
 const originalFetch = window.fetch;
 window.fetch = async function (input, init) {
-  let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-  
-  // Eğer istek API'ye yapılıyorsa ve içinde labId yoksa sarmala
-  if (url.includes('/api/') && !url.includes('labId=')) {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+  // Eğer istek API'ye yapılıyorsa, kayıtlı token'ı Authorization header'ı olarak ekle
+  if (url.includes('/api/')) {
     try {
       const authRaw = localStorage.getItem('pt_auth');
       if (authRaw) {
         const auth = JSON.parse(authRaw);
-        if (auth?.labId) {
-          const separator = url.includes('?') ? '&' : '?';
-          url = `${url}${separator}labId=${auth.labId}`;
+        if (auth?.token) {
+          const headers = new Headers(init?.headers);
+          if (!headers.has('Authorization')) {
+            headers.set('Authorization', `Bearer ${auth.token}`);
+          }
+          init = { ...(init || {}), headers };
         }
       }
     } catch {}
   }
-  return originalFetch(url, init);
+  return originalFetch(input, init);
 };
 
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';

@@ -1,0 +1,87 @@
+[33mcommit 6795911d928a8e64aadacca76a743933ec854598[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: umutcan gökgöz <umutcangkz@gmail.com>
+Date:   Sun Sep 13 23:26:31 2026 +0300
+
+    Remove remaining labId column references causing Drizzle crash
+
+[1mdiff --git a/artifacts/api-server/src/routes/prosthesis.ts b/artifacts/api-server/src/routes/prosthesis.ts[m
+[1mindex e87cec54..0ae21ff8 100644[m
+[1m--- a/artifacts/api-server/src/routes/prosthesis.ts[m
+[1m+++ b/artifacts/api-server/src/routes/prosthesis.ts[m
+[36m@@ -60,10 +60,6 @@[m [mconst stageLabels: Record<string, string> = {[m
+ // Laboratuvar ID'sine göre filtreleme destekli ortak iş seçici[m
+ async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | ReturnType<typeof and>) {[m
+   const conditions = [];[m
+[31m-  if (labId !== undefined && !isNaN(labId)) {[m
+[31m-    // @ts-ignore[m
+[31m-    conditions.push(eq(labJobsTable.labId, labId));[m
+[31m-  }[m
+   if (where) {[m
+     conditions.push(where);[m
+   }[m
+[36m@@ -71,7 +67,6 @@[m [masync function selectJobs(labId?: number, where?: ReturnType<typeof eq> | Return[m
+   return db[m
+     .select({[m
+       id: labJobsTable.id,[m
+[31m-      labId: labJobsTable.labId,[m
+       jobNumber: labJobsTable.jobNumber,[m
+       qrCode: labJobsTable.qrCode,[m
+       clinicId: labJobsTable.clinicId,[m
+[36m@@ -101,8 +96,8 @@[m [masync function selectJobs(labId?: number, where?: ReturnType<typeof eq> | Return[m
+     .orderBy(desc(labJobsTable.updatedAt));[m
+ }[m
+ [m
+[31m-async function getJobById(id: number, labId?: number) {[m
+[31m-  const [job] = await selectJobs(labId, eq(labJobsTable.id, id));[m
+[32m+[m[32masync function getJobById(id: number) {[m
+[32m+[m[32m  const [job] = await selectJobs(eq(labJobsTable.id, id));[m
+   return job;[m
+ }[m
+ [m
+[36m@@ -221,10 +216,6 @@[m [mrouter.get("/clinics/:id/finance-summary", async (req, res): Promise<void> => {[m
+   const labId = req.query.labId ? Number(req.query.labId) : undefined;[m
+   [m
+   const conditions = [eq(labJobsTable.clinicId, clinicId)];[m
+[31m-  if (labId !== undefined && !isNaN(labId)) {[m
+[31m-    // @ts-ignore[m
+[31m-    conditions.push(eq(labJobsTable.labId, labId));[m
+[31m-  }[m
+ [m
+   const jobs = await db[m
+     .select({[m
+[36m@@ -495,8 +486,6 @@[m [mrouter.post("/jobs", async (req, res): Promise<void> => {[m
+     .insert(labJobsTable)[m
+     .values({[m
+       ...parsed.data,[m
+[31m-      // @ts-ignore[m
+[31m-      labId: labId ?? parsed.data.labId ?? null,[m
+       jobNumber,[m
+       qrCode,[m
+       toothCount,[m
+[36m@@ -521,7 +510,7 @@[m [mrouter.post("/jobs", async (req, res): Promise<void> => {[m
+     note: "İş kaydı oluşturuldu.",[m
+   });[m
+ [m
+[31m-  const job = await getJobById(created.id, labId);[m
+[32m+[m[32m  const job = await getJobById(created.id);[m
+   res.status(201).json(CreateJobResponse.parse(job));[m
+ });[m
+ [m
+[36m@@ -547,7 +536,7 @@[m [mrouter.get("/jobs/:id", async (req, res): Promise<void> => {[m
+     res.status(400).json({ error: parsed.error.message });[m
+     return;[m
+   }[m
+[31m-  const job = await getJobById(parsed.data.id, labId);[m
+[32m+[m[32m  const job = await getJobById(parsed.data.id);[m
+   if (!job) {[m
+     res.status(404).json({ error: "İş bulunamadı." });[m
+     return;[m
+[36m@@ -600,7 +589,7 @@[m [mrouter.patch("/jobs/:id/status", async (req, res): Promise<void> => {[m
+     note: body.data.note ?? null,[m
+   });[m
+ [m
+[31m-  const job = await getJobById(updated.id, labId);[m
+[32m+[m[32m  const job = await getJobById(updated.id);[m
+   res.json(UpdateJobStatusResponse.parse(job));[m
+ });[m
+ [m

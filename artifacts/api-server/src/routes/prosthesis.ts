@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   clinicsTable,
@@ -12,6 +12,7 @@ import {
   processesTable,
   techniciansTable,
 } from "@workspace/db";
+import { requireLabAuth, type LabAuthedRequest } from "../middlewares/labAuth.js";
 import {
   CreateClinicBody,
   CreateClinicResponse,
@@ -58,8 +59,8 @@ const stageLabels: Record<string, string> = {
 };
 
 // Laboratuvar ID'sine göre filtreleme destekli ortak iş seçici
-async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | ReturnType<typeof and>) {
-  const conditions = [];
+async function selectJobs(labId: number, where?: ReturnType<typeof eq> | ReturnType<typeof and>) {
+  const conditions = [eq(labJobsTable.labId, labId)];
   if (where) {
     conditions.push(where);
   }
@@ -92,13 +93,23 @@ async function selectJobs(labId?: number, where?: ReturnType<typeof eq> | Return
     .from(labJobsTable)
     .innerJoin(clinicsTable, eq(labJobsTable.clinicId, clinicsTable.id))
     .innerJoin(doctorsTable, eq(labJobsTable.doctorId, doctorsTable.id))
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(labJobsTable.updatedAt));
 }
 
-async function getJobById(id: number) {
-  const [job] = await selectJobs(eq(labJobsTable.id, id));
+async function getJobById(id: number, labId: number) {
+  const [job] = await selectJobs(labId, eq(labJobsTable.id, id));
   return job;
+}
+
+// Bir kliniğin gerçekten bu laboratuvara ait olup olmadığını doğrular.
+// Lab-scoped alt kaynaklara (fiyatlar, doktorlar, işler) erişmeden önce kullanılır.
+async function assertClinicOwnership(clinicId: number, labId: number): Promise<boolean> {
+  const [clinic] = await db
+    .select({ id: clinicsTable.id })
+    .from(clinicsTable)
+    .where(and(eq(clinicsTable.id, clinicId), eq(clinicsTable.labId, labId)));
+  return Boolean(clinic);
 }
 
 function startOfToday() {
@@ -143,12 +154,31 @@ router.post("/auth/doctor-login", async (req, res): Promise<void> => {
 
 router.get("/doctor/:doctorId/jobs", async (req, res): Promise<void> => {
   const doctorId = Number(req.params.doctorId);
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
   if (isNaN(doctorId)) {
     res.status(400).json({ error: "Geçersiz doktor ID." });
     return;
   }
-  const jobs = await selectJobs(labId, eq(labJobsTable.doctorId, doctorId));
+
+  // Doktor girişinde lab token'ı yok; hangi laboratuvara ait olduğunu
+  // kendi kliniği üzerinden buluyoruz (doktor -> klinik -> lab).
+  const [doctor] = await db
+    .select({ clinicId: doctorsTable.clinicId })
+    .from(doctorsTable)
+    .where(eq(doctorsTable.id, doctorId));
+  if (!doctor) {
+    res.status(404).json({ error: "Doktor bulunamadı." });
+    return;
+  }
+  const [clinic] = await db
+    .select({ labId: clinicsTable.labId })
+    .from(clinicsTable)
+    .where(eq(clinicsTable.id, doctor.clinicId));
+  if (!clinic) {
+    res.status(404).json({ error: "Klinik bulunamadı." });
+    return;
+  }
+
+  const jobs = await selectJobs(clinic.labId, eq(labJobsTable.doctorId, doctorId));
   const sanitized = jobs.map(({ unitPrice, totalPrice, ...rest }) => rest);
   res.json(sanitized);
 });
@@ -156,8 +186,12 @@ router.get("/doctor/:doctorId/jobs", async (req, res): Promise<void> => {
 // -------------------------------------------------------------
 // 2. KLİNİĞE ÖZEL FİYATLANDIRMA VE FİNANS ENDPOINT'LERİ
 // -------------------------------------------------------------
-router.get("/clinics/:id/prices", async (req, res): Promise<void> => {
+router.get("/clinics/:id/prices", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const clinicId = Number(req.params.id);
+  if (!(await assertClinicOwnership(clinicId, req.lab!.id))) {
+    res.status(404).json({ error: "Klinik bulunamadı." });
+    return;
+  }
   const prices = await db
     .select()
     .from(clinicPricesTable)
@@ -166,8 +200,12 @@ router.get("/clinics/:id/prices", async (req, res): Promise<void> => {
   res.json(prices);
 });
 
-router.post("/clinics/:id/prices", async (req, res): Promise<void> => {
+router.post("/clinics/:id/prices", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const clinicId = Number(req.params.id);
+  if (!(await assertClinicOwnership(clinicId, req.lab!.id))) {
+    res.status(404).json({ error: "Klinik bulunamadı." });
+    return;
+  }
   const { procedureType, price } = req.body;
   if (!procedureType || price === undefined) {
     res.status(400).json({ error: "İşlem tipi ve fiyat zorunludur." });
@@ -205,59 +243,77 @@ router.post("/clinics/:id/prices", async (req, res): Promise<void> => {
   res.status(201).json(created);
 });
 
-router.delete("/clinics/prices/:priceId", async (req, res): Promise<void> => {
+router.delete("/clinics/prices/:priceId", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const priceId = Number(req.params.priceId);
+  const [price] = await db
+    .select({ clinicId: clinicPricesTable.clinicId })
+    .from(clinicPricesTable)
+    .where(eq(clinicPricesTable.id, priceId));
+  if (!price || !(await assertClinicOwnership(price.clinicId, req.lab!.id))) {
+    res.status(404).json({ error: "Fiyat kaydı bulunamadı." });
+    return;
+  }
   await db.delete(clinicPricesTable).where(eq(clinicPricesTable.id, priceId));
   res.sendStatus(204);
 });
 
-router.get("/clinics/:id/finance-summary", async (req, res): Promise<void> => {
-  const clinicId = Number(req.params.id);
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
-  
-  const conditions = [eq(labJobsTable.clinicId, clinicId)];
-
-  const jobs = await db
-    .select({
-      totalPrice: labJobsTable.totalPrice,
-      createdAt: labJobsTable.createdAt,
-    })
-    .from(labJobsTable)
-    .where(and(...conditions));
-
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-
-  let overallTotal = 0;
-  let thisMonthTotal = 0;
-
-  for (const job of jobs) {
-    const amount = parseFloat(job.totalPrice || "0");
-    overallTotal += amount;
-    const d = new Date(job.createdAt);
-    if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
-      thisMonthTotal += amount;
+router.get(
+  "/clinics/:id/finance-summary",
+  requireLabAuth,
+  async (req: LabAuthedRequest, res): Promise<void> => {
+    const clinicId = Number(req.params.id);
+    const labId = req.lab!.id;
+    if (!(await assertClinicOwnership(clinicId, labId))) {
+      res.status(404).json({ error: "Klinik bulunamadı." });
+      return;
     }
-  }
 
-  res.json({
-    clinicId,
-    overallTotal: overallTotal.toFixed(2),
-    thisMonthTotal: thisMonthTotal.toFixed(2),
-    totalJobCount: jobs.length,
-  });
-});
+    const jobs = await db
+      .select({
+        totalPrice: labJobsTable.totalPrice,
+        createdAt: labJobsTable.createdAt,
+      })
+      .from(labJobsTable)
+      .where(and(eq(labJobsTable.clinicId, clinicId), eq(labJobsTable.labId, labId)));
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    let overallTotal = 0;
+    let thisMonthTotal = 0;
+
+    for (const job of jobs) {
+      const amount = parseFloat(job.totalPrice || "0");
+      overallTotal += amount;
+      const d = new Date(job.createdAt);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+        thisMonthTotal += amount;
+      }
+    }
+
+    res.json({
+      clinicId,
+      overallTotal: overallTotal.toFixed(2),
+      thisMonthTotal: thisMonthTotal.toFixed(2),
+      totalJobCount: jobs.length,
+    });
+  },
+);
 
 // -------------------------------------------------------------
 // 3. TEKNİSYEN VE BÖLÜM YÖNETİMİ
 // -------------------------------------------------------------
-router.get("/technicians", async (_req, res): Promise<void> => {
-  const list = await db.select().from(techniciansTable).orderBy(asc(techniciansTable.name));
+router.get("/technicians", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const list = await db
+    .select()
+    .from(techniciansTable)
+    .where(eq(techniciansTable.labId, req.lab!.id))
+    .orderBy(asc(techniciansTable.name));
   res.json(list);
 });
 
-router.post("/technicians", async (req, res): Promise<void> => {
+router.post("/technicians", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const { name, department } = req.body;
   if (!name || !department) {
     res.status(400).json({ error: "Teknisyen adı ve departmanı zorunludur." });
@@ -265,22 +321,28 @@ router.post("/technicians", async (req, res): Promise<void> => {
   }
   const [created] = await db
     .insert(techniciansTable)
-    .values({ name: name.trim(), department: department.trim() })
+    .values({ labId: req.lab!.id, name: name.trim(), department: department.trim() })
     .returning();
   res.status(201).json(created);
 });
 
-router.delete("/technicians/:id", async (req, res): Promise<void> => {
+router.delete("/technicians/:id", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const id = Number(req.params.id);
-  await db.delete(techniciansTable).where(eq(techniciansTable.id, id));
+  await db
+    .delete(techniciansTable)
+    .where(and(eq(techniciansTable.id, id), eq(techniciansTable.labId, req.lab!.id)));
   res.sendStatus(204);
 });
 
 // -------------------------------------------------------------
 // 4. LABORATUVAR AYARLARI
 // -------------------------------------------------------------
-router.get("/settings", async (_req, res): Promise<void> => {
-  const [settings] = await db.select().from(labSettingsTable).limit(1);
+router.get("/settings", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const [settings] = await db
+    .select()
+    .from(labSettingsTable)
+    .where(eq(labSettingsTable.labId, req.lab!.id))
+    .limit(1);
   if (!settings) {
     res.json({ labName: "Dental Protez Laboratuvarı", logoUrl: "" });
     return;
@@ -288,9 +350,14 @@ router.get("/settings", async (_req, res): Promise<void> => {
   res.json(settings);
 });
 
-router.post("/settings", async (req, res): Promise<void> => {
+router.post("/settings", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const { labName, logoUrl } = req.body;
-  const [existing] = await db.select().from(labSettingsTable).limit(1);
+  const labId = req.lab!.id;
+  const [existing] = await db
+    .select()
+    .from(labSettingsTable)
+    .where(eq(labSettingsTable.labId, labId))
+    .limit(1);
 
   if (existing) {
     const [updated] = await db
@@ -309,6 +376,7 @@ router.post("/settings", async (req, res): Promise<void> => {
   const [created] = await db
     .insert(labSettingsTable)
     .values({
+      labId,
       labName: labName || "Dental Protez Laboratuvarı",
       logoUrl: logoUrl || "",
     })
@@ -319,15 +387,20 @@ router.post("/settings", async (req, res): Promise<void> => {
 // -------------------------------------------------------------
 // SÜREÇLER, İŞLER VE KLİNİK METODLARI (LAB-ID FİLTRELİ)
 // -------------------------------------------------------------
-router.get("/processes", async (_req, res): Promise<void> => {
+// Not: processesTable.labId NULLABLE. labId = null olan kayıtlar varsayılan
+// (tüm laboratuvarlar için ortak) süreçlerdir; labId dolu olanlar sadece o
+// laboratuvarın kendi eklediği özel süreçlerdir.
+router.get("/processes", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const processes = await db
     .select()
     .from(processesTable)
+    .where(or(isNull(processesTable.labId), eq(processesTable.labId, req.lab!.id)))
     .orderBy(asc(processesTable.sortOrder), asc(processesTable.name));
   res.json(ListProcessesResponse.parse(processes));
 });
 
-router.post("/processes", async (req, res): Promise<void> => {
+router.post("/processes", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const parsed = CreateProcessBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -341,15 +414,24 @@ router.post("/processes", async (req, res): Promise<void> => {
   const [existing] = await db
     .select({ id: processesTable.id })
     .from(processesTable)
-    .where(eq(processesTable.name, name));
+    .where(
+      and(
+        eq(processesTable.name, name),
+        or(isNull(processesTable.labId), eq(processesTable.labId, labId)),
+      ),
+    );
   if (existing) {
     res.status(400).json({ error: "Bu işlem zaten kayıtlı." });
     return;
   }
-  const current = await db.select({ id: processesTable.id }).from(processesTable);
+  const current = await db
+    .select({ id: processesTable.id })
+    .from(processesTable)
+    .where(or(isNull(processesTable.labId), eq(processesTable.labId, labId)));
   const [created] = await db
     .insert(processesTable)
     .values({
+      labId,
       key: `custom_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
       name,
       sortOrder: current.length + 1,
@@ -359,7 +441,7 @@ router.post("/processes", async (req, res): Promise<void> => {
   res.status(201).json(CreateProcessResponse.parse(created));
 });
 
-router.delete("/processes/:id", async (req, res): Promise<void> => {
+router.delete("/processes/:id", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = DeleteProcessParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -368,7 +450,7 @@ router.delete("/processes/:id", async (req, res): Promise<void> => {
   const [process] = await db
     .select()
     .from(processesTable)
-    .where(eq(processesTable.id, parsed.data.id));
+    .where(and(eq(processesTable.id, parsed.data.id), eq(processesTable.labId, req.lab!.id)));
   if (!process) {
     res.status(404).json({ error: "İşlem bulunamadı." });
     return;
@@ -381,11 +463,15 @@ router.delete("/processes/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.get("/dashboard/summary", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/dashboard/summary", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const [jobs, processes] = await Promise.all([
     selectJobs(labId),
-    db.select().from(processesTable).orderBy(asc(processesTable.sortOrder)),
+    db
+      .select()
+      .from(processesTable)
+      .where(or(isNull(processesTable.labId), eq(processesTable.labId, labId)))
+      .orderBy(asc(processesTable.sortOrder)),
   ]);
   const today = startOfToday();
   const tomorrow = new Date(today);
@@ -416,8 +502,8 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   );
 });
 
-router.get("/jobs", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/jobs", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const parsed = ListJobsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -441,11 +527,16 @@ router.get("/jobs", async (req, res): Promise<void> => {
   res.json(ListJobsResponse.parse(jobs));
 });
 
-router.post("/jobs", async (req, res): Promise<void> => {
-  const labId = req.body.labId ? Number(req.body.labId) : (req.query.labId ? Number(req.query.labId) : undefined);
+router.post("/jobs", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const parsed = CreateJobBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  if (!(await assertClinicOwnership(parsed.data.clinicId, labId))) {
+    res.status(400).json({ error: "Geçersiz klinik." });
     return;
   }
 
@@ -486,6 +577,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
     .insert(labJobsTable)
     .values({
       ...parsed.data,
+      labId,
       jobNumber,
       qrCode,
       toothCount,
@@ -510,18 +602,17 @@ router.post("/jobs", async (req, res): Promise<void> => {
     note: "İş kaydı oluşturuldu.",
   });
 
-  const job = await getJobById(created.id);
+  const job = await getJobById(created.id, labId);
   res.status(201).json(CreateJobResponse.parse(job));
 });
 
-router.get("/jobs/qr/:qrCode", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/jobs/qr/:qrCode", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = GetJobByQrParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [job] = await selectJobs(labId, eq(labJobsTable.qrCode, parsed.data.qrCode));
+  const [job] = await selectJobs(req.lab!.id, eq(labJobsTable.qrCode, parsed.data.qrCode));
   if (!job) {
     res.status(404).json({ error: "İş bulunamadı." });
     return;
@@ -529,14 +620,13 @@ router.get("/jobs/qr/:qrCode", async (req, res): Promise<void> => {
   res.json(GetJobByQrResponse.parse(job));
 });
 
-router.get("/jobs/:id", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/jobs/:id", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = GetJobParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const job = await getJobById(parsed.data.id);
+  const job = await getJobById(parsed.data.id, req.lab!.id);
   if (!job) {
     res.status(404).json({ error: "İş bulunamadı." });
     return;
@@ -544,8 +634,8 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
   res.json(GetJobResponse.parse(job));
 });
 
-router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
-  const labId = req.body.labId ? Number(req.body.labId) : (req.query.labId ? Number(req.query.labId) : undefined);
+router.patch("/jobs/:id/status", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const params = UpdateJobStatusParams.safeParse(req.params);
   const body = UpdateJobStatusBody.safeParse(req.body);
   if (!params.success) {
@@ -573,7 +663,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
       currentStage: nextLabel,
       updatedAt: new Date(),
     })
-    .where(eq(labJobsTable.id, params.data.id))
+    .where(and(eq(labJobsTable.id, params.data.id), eq(labJobsTable.labId, labId)))
     .returning();
   if (!updated) {
     res.status(404).json({ error: "İş bulunamadı." });
@@ -589,45 +679,59 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     note: body.data.note ?? null,
   });
 
-  const job = await getJobById(updated.id);
+  const job = await getJobById(updated.id, labId);
   res.json(UpdateJobStatusResponse.parse(job));
 });
 
-router.patch("/jobs/:id/technicians", async (req, res): Promise<void> => {
-  const id = Number(req.params.id);
-  const { assignedTechnicians } = req.body;
-  const [updated] = await db
-    .update(labJobsTable)
-    .set({
-      assignedTechnicians: JSON.stringify(assignedTechnicians || {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(labJobsTable.id, id))
-    .returning();
-  res.json(updated);
-});
+router.patch(
+  "/jobs/:id/technicians",
+  requireLabAuth,
+  async (req: LabAuthedRequest, res): Promise<void> => {
+    const id = Number(req.params.id);
+    const { assignedTechnicians } = req.body;
+    const [updated] = await db
+      .update(labJobsTable)
+      .set({
+        assignedTechnicians: JSON.stringify(assignedTechnicians || {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(labJobsTable.id, id), eq(labJobsTable.labId, req.lab!.id)))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ error: "İş bulunamadı." });
+      return;
+    }
+    res.json(updated);
+  },
+);
 
-router.get("/jobs/:id/timeline", async (req, res): Promise<void> => {
-  const parsed = ListJobTimelineParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const timeline = await db
-    .select()
-    .from(jobTimelineTable)
-    .where(eq(jobTimelineTable.jobId, parsed.data.id))
-    .orderBy(asc(jobTimelineTable.timestamp));
-  res.json(ListJobTimelineResponse.parse(timeline));
-});
+router.get(
+  "/jobs/:id/timeline",
+  async (req, res): Promise<void> => {
+    const parsed = ListJobTimelineParams.safeParse(req.params);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const timeline = await db
+      .select()
+      .from(jobTimelineTable)
+      .where(eq(jobTimelineTable.jobId, parsed.data.id))
+      .orderBy(asc(jobTimelineTable.timestamp));
+    res.json(ListJobTimelineResponse.parse(timeline));
+  },
+);
 
-router.get("/clinics", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
-  
-  // Sadece o laboratuvara ait işleri ve ilişkili verileri baz alalım
+router.get("/clinics", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
+
   const jobs = await selectJobs(labId);
-  const clinics = await db.select().from(clinicsTable).orderBy(asc(clinicsTable.name));
-  const doctors = await db.select().from(doctorsTable);
+  const clinics = await db
+    .select()
+    .from(clinicsTable)
+    .where(eq(clinicsTable.labId, labId))
+    .orderBy(asc(clinicsTable.name));
+  const doctors = await db.select().from(doctorsTable).where(eq(doctorsTable.labId, labId));
 
   const result = clinics.map((clinic) => ({
     ...clinic,
@@ -639,7 +743,7 @@ router.get("/clinics", async (req, res): Promise<void> => {
   res.json(ListClinicsResponse.parse(result));
 });
 
-router.post("/clinics", async (req, res): Promise<void> => {
+router.post("/clinics", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = CreateClinicBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -648,6 +752,7 @@ router.post("/clinics", async (req, res): Promise<void> => {
   const [clinic] = await db
     .insert(clinicsTable)
     .values({
+      labId: req.lab!.id,
       name: parsed.data.name,
       code: parsed.data.code,
       address: parsed.data.address ?? "",
@@ -663,14 +768,17 @@ router.post("/clinics", async (req, res): Promise<void> => {
   );
 });
 
-router.get("/clinics/:id", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/clinics/:id", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const parsed = GetClinicParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [clinic] = await db.select().from(clinicsTable).where(eq(clinicsTable.id, parsed.data.id));
+  const [clinic] = await db
+    .select()
+    .from(clinicsTable)
+    .where(and(eq(clinicsTable.id, parsed.data.id), eq(clinicsTable.labId, labId)));
   if (!clinic) {
     res.status(404).json({ error: "Klinik bulunamadı." });
     return;
@@ -689,35 +797,45 @@ router.get("/clinics/:id", async (req, res): Promise<void> => {
   );
 });
 
-router.get("/clinics/:id/jobs", async (req, res): Promise<void> => {
-  const labId = req.query.labId ? Number(req.query.labId) : undefined;
+router.get("/clinics/:id/jobs", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
+  const labId = req.lab!.id;
   const parsed = ListClinicJobsParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  if (!(await assertClinicOwnership(parsed.data.id, labId))) {
+    res.status(404).json({ error: "Klinik bulunamadı." });
     return;
   }
   const jobs = await selectJobs(labId, eq(labJobsTable.clinicId, parsed.data.id));
   res.json(ListClinicJobsResponse.parse(jobs));
 });
 
-router.get("/doctors", async (req, res): Promise<void> => {
+router.get("/doctors", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = ListDoctorsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const conditions = [eq(doctorsTable.labId, req.lab!.id)];
+  if (parsed.data.clinicId) conditions.push(eq(doctorsTable.clinicId, parsed.data.clinicId));
   const doctors = await db
     .select()
     .from(doctorsTable)
-    .where(parsed.data.clinicId ? eq(doctorsTable.clinicId, parsed.data.clinicId) : undefined)
+    .where(and(...conditions))
     .orderBy(asc(doctorsTable.name));
   res.json(ListDoctorsResponse.parse(doctors));
 });
 
-router.post("/doctors", async (req, res): Promise<void> => {
+router.post("/doctors", requireLabAuth, async (req: LabAuthedRequest, res): Promise<void> => {
   const parsed = CreateDoctorBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  if (!(await assertClinicOwnership(parsed.data.clinicId, req.lab!.id))) {
+    res.status(400).json({ error: "Geçersiz klinik." });
     return;
   }
   const username = req.body.username || `dr_${randomUUID().slice(0, 6)}`;
@@ -726,6 +844,7 @@ router.post("/doctors", async (req, res): Promise<void> => {
   const [doctor] = await db
     .insert(doctorsTable)
     .values({
+      labId: req.lab!.id,
       clinicId: parsed.data.clinicId,
       name: parsed.data.name,
       specialty: parsed.data.specialty ?? "Diş Hekimi",

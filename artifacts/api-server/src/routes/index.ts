@@ -4,6 +4,7 @@ import healthRouter from "./health.js";
 import prosthesisRouter from "./prosthesis.js";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { signLabToken } from "../middlewares/labAuth.js";
 
 const router = Router();
 
@@ -26,14 +27,16 @@ router.get("/admin/labs", async (req, res) => {
 router.post("/admin/labs", async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
-    return res.status(400).json({ error: "Tüm alanlar zorunludur." });
+    res.status(400).json({ error: "Tüm alanlar zorunludur." });
+    return;
   }
 
   try {
     const existing = await db.execute(sql`SELECT * FROM labs WHERE email = ${email}`);
     const rows = existing.rows || existing;
     if (rows.length > 0) {
-      return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir laboratuvar kayıtlı." });
+      res.status(400).json({ error: "Bu e-posta adresiyle zaten bir laboratuvar kayıtlı." });
+      return;
     }
 
     const result = await db.execute(
@@ -55,13 +58,17 @@ router.post("/auth/lab-login", async (req, res) => {
     const lab = (result.rows || result)[0];
 
     if (!lab || lab.password !== password) {
-      return res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
+      res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
+      return;
     }
 
     res.json({
       success: true,
       lab: { id: lab.id, name: lab.name, email: lab.email },
-      token: "saas-lab-token-" + lab.id
+      // Önceden sahte bir string ("saas-lab-token-" + lab.id) dönüyordu ve
+      // hiçbir middleware bunu doğrulamıyordu. Artık gerçek, imzalı bir JWT
+      // dönüyoruz; requireLabAuth bunu doğrulayıp req.lab olarak set ediyor.
+      token: signLabToken({ id: Number(lab.id), name: String(lab.name), email: String(lab.email) }),
     });
   } catch (err) {
     console.error(err);
@@ -84,14 +91,16 @@ router.get("/admin/external-labs", async (req, res) => {
 router.post("/admin/external-labs", async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
-    return res.status(400).json({ error: "Tüm alanlar zorunludur." });
+    res.status(400).json({ error: "Tüm alanlar zorunludur." });
+    return;
   }
 
   try {
     const existing = await db.execute(sql`SELECT * FROM external_labs WHERE email = ${email}`);
     const rows = existing.rows || existing;
     if (rows.length > 0) {
-      return res.status(400).json({ error: "Bu e-posta adresiyle zaten bir dış laboratuvar kayıtlı." });
+      res.status(400).json({ error: "Bu e-posta adresiyle zaten bir dış laboratuvar kayıtlı." });
+      return;
     }
 
     const result = await db.execute(
@@ -137,7 +146,8 @@ router.post("/auth/external-lab-login", async (req, res) => {
     const lab = (result.rows || result)[0];
 
     if (!lab || lab.password !== password) {
-      return res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
+      res.status(401).json({ error: "Geçersiz e-posta veya şifre." });
+      return;
     }
 
     res.json({
@@ -155,7 +165,8 @@ router.post("/auth/external-lab-login", async (req, res) => {
 router.post("/external-lab/stls", async (req, res) => {
   const { externalLabId, patientName, fileName, fileUrl } = req.body;
   if (!externalLabId || !patientName || !fileName || !fileUrl) {
-    return res.status(400).json({ error: "Eksik alan bıraktınız." });
+    res.status(400).json({ error: "Eksik alan bıraktınız." });
+    return;
   }
 
   try {

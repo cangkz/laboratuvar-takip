@@ -32,7 +32,8 @@ router.get("/", async (req, res) => {
 router.post("/", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "Dosya yüklenmedi." });
+      res.status(400).json({ error: "Dosya yüklenmedi." });
+      return;
     }
 
     const s3 = getR2Client();
@@ -75,7 +76,8 @@ router.get("/:key/download", async (req, res) => {
 
     const response = await s3.send(command);
     if (!response.Body) {
-      return res.status(404).json({ error: "Dosya bulunamadı." });
+      res.status(404).json({ error: "Dosya bulunamadı." });
+      return;
     }
 
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(decodedKey)}"` );
