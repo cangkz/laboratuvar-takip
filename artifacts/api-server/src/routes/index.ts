@@ -8,7 +8,11 @@ import prosthesisRouter from "./prosthesis.js";
 import { db, externalStlJobsTable } from "@workspace/db";
 import { sql, eq, desc } from "drizzle-orm";
 import { signLabToken } from "../middlewares/labAuth.js";
-import { requireExternalLabAuth, type ExternalLabAuthedRequest } from "../middlewares/externalLabAuth.js";
+import {
+  requireExternalLabAuth,
+  signExternalLabToken,
+  type ExternalLabAuthedRequest,
+} from "../middlewares/externalLabAuth.js";
 import { getR2Client, getR2Bucket } from "../lib/r2Client.js";
 
 const router = Router();
@@ -159,7 +163,11 @@ router.post("/auth/external-lab-login", async (req, res) => {
     res.json({
       success: true,
       lab: { id: lab.id, name: lab.name, email: lab.email },
-      token: "ext-lab-token-" + lab.id
+      // Önceden sahte bir string ("ext-lab-token-" + lab.id) dönüyordu ve
+      // requireExternalLabAuth bunu jwt.verify ile doğrulayamadığı için her
+      // korumalı istek 401 dönüp kullanıcıyı oturumdan atıyordu. Artık gerçek,
+      // imzalı bir JWT dönüyoruz.
+      token: signExternalLabToken({ id: Number(lab.id), name: String(lab.name), email: String(lab.email) }),
     });
   } catch (err) {
     console.error(err);
